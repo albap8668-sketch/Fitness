@@ -1,9 +1,8 @@
-// FitnessTracker Service Worker
-const CACHE = "fitness-v1";
+// FitnessTracker Service Worker v2
+const CACHE = "fitness-v2";
 const ASSETS = [
   "/Fitness/FitnessTracker.html",
   "/Fitness/manifest.json",
-  "https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap"
 ];
 
 self.addEventListener("install", e => {
@@ -22,14 +21,11 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if (cached) return cached;
-      return fetch(e.request).then(res => {
-        if (!res || res.status !== 200 || res.type === "opaque") return res;
-        const clone = res.clone();
-        caches.open(CACHE).then(cache => cache.put(e.request, clone));
-        return res;
-      }).catch(() => caches.match("/Fitness/FitnessTracker.html"));
-    })
+    fetch(e.request).then(res => {
+      if(!res || res.status !== 200 || res.type === "opaque") return res;
+      const clone = res.clone();
+      caches.open(CACHE).then(cache => cache.put(e.request, clone));
+      return res;
+    }).catch(() => caches.match(e.request))
   );
 });
