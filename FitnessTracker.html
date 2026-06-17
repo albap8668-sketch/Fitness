@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Tracker · Fitness</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <!-- PWA Safari -->
 <link rel="manifest" href="./manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2079,7 +2079,23 @@ renderHoy();
 // ─── SUPABASE AUTH & SYNC ─────────────────────────────────────────
 const SUPABASE_URL = "https://jriyvnaalfizpytqarqb.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaXl2bmFhbGZpenB5dHFhcnFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMjc2NzksImV4cCI6MjA5NjYwMzY3OX0.zJaMrJNInx8XWBb8n6pdq8l6BaTy_pMbLW6z1jV5lQY";
-const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let supabase;
+try {
+  if(window.supabase && window.supabase.createClient) {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  } else {
+    throw new Error("Supabase no cargó");
+  }
+} catch(e) {
+  console.error("Supabase init error:", e);
+  document.getElementById("auth-screen").style.display="flex";
+  document.getElementById("app").style.display="none";
+  // Show error in auth screen
+  setTimeout(()=>{
+    const errEl = document.getElementById("auth-error");
+    if(errEl){ errEl.textContent="Error de conexión. Verificá tu internet e intentá de nuevo."; errEl.style.display="block"; }
+  }, 500);
+}
 
 let currentUser = null;
 let syncDebounce = null;
@@ -2118,6 +2134,7 @@ async function authSubmit(){
   if(isRegister&&pass!==pass2){showAuthError("Las contraseñas no coinciden");return;}
   if(pass.length<6){showAuthError("La contraseña debe tener al menos 6 caracteres");return;}
   
+  if(!supabase){ showAuthError("Sin conexión al servidor. Recargá la página."); return; }
   btn.disabled=true;
   btn.textContent=isRegister?"Registrando...":"Ingresando...";
   
@@ -2189,7 +2206,7 @@ function showSync(state){
 }
 
 async function syncToCloud(){
-  if(!currentUser) return;
+  if(!currentUser||!supabase) return;
   showSync("syncing");
   try{
     // Sync profile
@@ -2235,7 +2252,7 @@ async function syncToCloud(){
 }
 
 async function loadFromCloud(){
-  if(!currentUser) return;
+  if(!currentUser||!supabase) return;
   showSync("syncing");
   try{
     // Load profile
@@ -2284,7 +2301,7 @@ function ss(k,v){
 }
 
 // ── AUTH STATE LISTENER ───────────────────────────────────────────
-supabase.auth.onAuthStateChange(async (event, session)=>{
+if(supabase) supabase.auth.onAuthStateChange(async (event, session)=>{
   if(session?.user){
     currentUser=session.user;
     updateUserBadge(currentUser);
@@ -2310,7 +2327,7 @@ document.getElementById("app").style.display="none";
 document.getElementById("auth-screen").style.display="flex";
 
 // Check for existing session
-supabase.auth.getSession().then(async ({ data: { session } })=>{
+if(supabase) supabase.auth.getSession().then(async ({ data: { session } })=>{
   if(!session){
     document.getElementById("auth-screen").style.display="flex";
   }
