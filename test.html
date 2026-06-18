@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Test Supabase</title>
+<style>
+body{font-family:sans-serif;background:#0e0e10;color:#f0f0f0;padding:20px;font-size:16px}
+input{width:100%;padding:12px;margin:8px 0;background:#222;border:1px solid #444;border-radius:8px;color:white;font-size:16px;box-sizing:border-box}
+button{width:100%;padding:14px;margin:8px 0;background:#c8f564;border:none;border-radius:8px;font-size:16px;font-weight:bold;cursor:pointer;color:#000}
+#status{margin-top:20px;padding:12px;border-radius:8px;background:#222;font-family:monospace;font-size:13px;white-space:pre-wrap;min-height:60px}
+</style>
+</head>
+<body>
+<h2>Test Login v3</h2>
+<div id="status">Listo para probar (sin CDN)</div>
+<input type="email" id="email" placeholder="Email">
+<input type="password" id="pass" placeholder="Contraseña (min 6 caracteres)">
+<button onclick="testRegister()">Registrarse</button>
+<button onclick="testLogin()">Iniciar sesion</button>
+
+<script>
+const SB_URL = "https://jriyvnaalfizpytqarqb.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaXl2bmFhbGZpenB5dHFhcnFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMjc2NzksImV4cCI6MjA5NjYwMzY3OX0.zJaMrJNInx8XWBb8n6pdq8l6BaTy_pMbLW6z1jV5lQY";
+
+const log = msg => {
+  document.getElementById("status").textContent += "\n" + msg;
+  console.log(msg);
+};
+
+async function sbFetch(path, body) {
+  const res = await fetch(SB_URL + path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SB_KEY,
+      "Authorization": "Bearer " + SB_KEY
+    },
+    body: JSON.stringify(body)
+  });
+  return await res.json();
+}
+
+async function testRegister() {
+  const email = document.getElementById("email").value.trim();
+  const pass = document.getElementById("pass").value;
+  if(!email || !pass) { log("Ingresa email y contrasena"); return; }
+  log("Registrando " + email + "...");
+  try {
+    const data = await sbFetch("/auth/v1/signup", { email, password: pass });
+    if(data.error) log("Error: " + data.error.message);
+    else if(data.id) log("Registrado! ID: " + data.id);
+    else log("Respuesta: " + JSON.stringify(data).slice(0,200));
+  } catch(e) { log("Excepcion: " + e.message); }
+}
+
+async function testLogin() {
+  const email = document.getElementById("email").value.trim();
+  const pass = document.getElementById("pass").value;
+  if(!email || !pass) { log("Ingresa email y contrasena"); return; }
+  log("Iniciando sesion...");
+  try {
+    const data = await sbFetch("/auth/v1/token?grant_type=password", { email, password: pass });
+    if(data.error) log("Error: " + data.error.message);
+    else if(data.access_token) log("Sesion iniciada! Token: " + data.access_token.slice(0,30) + "...");
+    else log("Respuesta: " + JSON.stringify(data).slice(0,200));
+  } catch(e) { log("Excepcion: " + e.message); }
+}
+</script>
+</body>
+</html>
