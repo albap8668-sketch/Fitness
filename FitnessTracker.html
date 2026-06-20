@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Tracker · Fitness</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<!-- No CDN needed - using direct fetch -->
 <!-- PWA Safari -->
 <link rel="manifest" href="./manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
@@ -2076,29 +2076,45 @@ renderHoy();
 
 // Date selector init happens after auth
 
-// ─── SUPABASE AUTH & SYNC ─────────────────────────────────────────
-const SUPABASE_URL = "https://jriyvnaalfizpytqarqb.supabase.co";
-const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaXl2bmFhbGZpenB5dHFhcnFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMjc2NzksImV4cCI6MjA5NjYwMzY3OX0.zJaMrJNInx8XWBb8n6pdq8l6BaTy_pMbLW6z1jV5lQY";
-let supabase;
-try {
-  if(window.supabase && window.supabase.createClient) {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-  } else {
-    throw new Error("Supabase no cargó");
-  }
-} catch(e) {
-  console.error("Supabase init error:", e);
-  document.getElementById("auth-screen").style.display="flex";
-  document.getElementById("app").style.display="none";
-  // Show error in auth screen
-  setTimeout(()=>{
-    const errEl = document.getElementById("auth-error");
-    if(errEl){ errEl.textContent="Error de conexión. Verificá tu internet e intentá de nuevo."; errEl.style.display="block"; }
-  }, 500);
-}
+// ─── SUPABASE AUTH & SYNC (direct fetch, no CDN) ──────────────────
+const SB_URL = "https://jriyvnaalfizpytqarqb.supabase.co";
+const SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpyaXl2bmFhbGZpenB5dHFhcnFiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMjc2NzksImV4cCI6MjA5NjYwMzY3OX0.zJaMrJNInx8XWBb8n6pdq8l6BaTy_pMbLW6z1jV5lQY";
 
 let currentUser = null;
+let currentSession = null;
 let syncDebounce = null;
+
+async function sbAuthRequest(path, body, method="POST"){
+  const opts = {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "apikey": SB_KEY,
+      "Authorization": "Bearer " + (currentSession?.access_token || SB_KEY)
+    }
+  };
+  if(body) opts.body = JSON.stringify(body);
+  const res = await fetch(SB_URL + path, opts);
+  const data = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(data.error_description || data.error?.message || data.msg || "Error");
+  return data;
+}
+
+async function sbDataRequest(path, opts={}){
+  const headers = {
+    "Content-Type": "application/json",
+    "apikey": SB_KEY,
+    "Authorization": "Bearer " + (currentSession?.access_token || SB_KEY),
+    ...opts.headers
+  };
+  const res = await fetch(SB_URL + "/rest/v1" + path, {...opts, headers});
+  if(!res.ok){
+    const errText = await res.text().catch(()=>"");
+    throw new Error("DB error: " + res.status + " " + errText);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
 
 // ── AUTH HELPERS ──────────────────────────────────────────────────
 function switchAuthTab(tab){
@@ -2108,7 +2124,6 @@ function switchAuthTab(tab){
   document.getElementById("auth-password2").style.display = tab==="register" ? "block" : "none";
   document.getElementById("auth-error").style.display = "none";
   document.getElementById("auth-success").style.display = "none";
-  document.getElementById("auth-password").autocomplete = tab==="login" ? "current-password" : "new-password";
 }
 
 function showAuthError(msg){
@@ -2134,24 +2149,29 @@ async function authSubmit(){
   if(isRegister&&pass!==pass2){showAuthError("Las contraseñas no coinciden");return;}
   if(pass.length<6){showAuthError("La contraseña debe tener al menos 6 caracteres");return;}
   
-  if(!supabase){ showAuthError("Sin conexión al servidor. Recargá la página."); return; }
   btn.disabled=true;
   btn.textContent=isRegister?"Registrando...":"Ingresando...";
   
   try{
-    let result;
+    let data;
     if(isRegister){
-      result=await supabase.auth.signUp({email,password:pass});
-      if(result.error) throw result.error;
-      if(result.data.user&&!result.data.session){
+      data = await sbAuthRequest("/auth/v1/signup", {email, password: pass});
+      if(data.access_token){
+        currentSession = data;
+        currentUser = data.user;
+        ss("sb_session", currentSession);
+        await onLoginSuccess();
+      } else {
         showAuthSuccess("¡Registrado! Revisá tu email para confirmar la cuenta.");
         btn.disabled=false; btn.textContent="Registrarse"; return;
       }
     } else {
-      result=await supabase.auth.signInWithPassword({email,password:pass});
-      if(result.error) throw result.error;
+      data = await sbAuthRequest("/auth/v1/token?grant_type=password", {email, password: pass});
+      currentSession = data;
+      currentUser = data.user;
+      ss("sb_session", currentSession);
+      await onLoginSuccess();
     }
-    // Session established — onAuthStateChange will handle the rest
   } catch(e){
     const msgs={
       "Invalid login credentials":"Email o contraseña incorrectos",
@@ -2165,15 +2185,15 @@ async function authSubmit(){
 }
 
 async function authGoogle(){
-  await supabase.auth.signInWithOAuth({
-    provider:"google",
-    options:{redirectTo: window.location.href}
-  });
+  const redirectTo = encodeURIComponent(window.location.href.split("?")[0]);
+  window.location.href = `${SB_URL}/auth/v1/authorize?provider=google&redirect_to=${redirectTo}`;
 }
 
 async function authSignOut(){
-  await supabase.auth.signOut();
+  try{ await sbAuthRequest("/auth/v1/logout", null, "POST"); }catch(e){}
   currentUser=null;
+  currentSession=null;
+  localStorage.removeItem("sb_session");
   document.getElementById("app").style.display="none";
   document.getElementById("auth-screen").style.display="flex";
   document.getElementById("user-badge").style.display="none";
@@ -2206,92 +2226,106 @@ function showSync(state){
 }
 
 async function syncToCloud(){
-  if(!currentUser||!supabase) return;
+  if(!currentUser||!currentSession) return;
   showSync("syncing");
   try{
+    const uid = currentUser.id;
+    
     // Sync profile
     const p=getProfile();
-    await supabase.from("profiles").upsert({
-      id:currentUser.id, ...p, updated_at:new Date().toISOString()
+    await sbDataRequest("/profiles?id=eq."+uid, {
+      method:"PATCH",
+      headers:{"Prefer":"return=minimal"},
+      body: JSON.stringify({...p, updated_at:new Date().toISOString()})
     });
     
     // Sync all days
     const days=getDays();
-    const dayRows=Object.entries(days).map(([date,data])=>{
-      return {user_id:currentUser.id, date, data, updated_at:new Date().toISOString()};
-    });
+    const dayRows=Object.entries(days).map(([date,data])=>({
+      user_id:uid, date, data, updated_at:new Date().toISOString()
+    }));
     if(dayRows.length>0){
-      await supabase.from("days").upsert(dayRows, {onConflict:"user_id,date"});
+      await sbDataRequest("/days", {
+        method:"POST",
+        headers:{"Prefer":"resolution=merge-duplicates,return=minimal"},
+        body: JSON.stringify(dayRows)
+      });
     }
     
-    // Sync custom foods
+    // Sync custom foods (single row per user)
     const foods=getCustomFoods();
+    await sbDataRequest("/custom_foods?user_id=eq."+uid, {
+      method:"DELETE", headers:{"Prefer":"return=minimal"}
+    }).catch(()=>{});
     if(foods.length>0){
-      await supabase.from("custom_foods").upsert({
-        user_id:currentUser.id,
-        data:foods,
-        updated_at:new Date().toISOString()
-      }, {onConflict:"user_id"});
+      await sbDataRequest("/custom_foods", {
+        method:"POST",
+        headers:{"Prefer":"return=minimal"},
+        body: JSON.stringify({user_id:uid, data:foods, updated_at:new Date().toISOString()})
+      });
     }
     
     // Sync custom exercises
     const exs=ls("customExercises",{});
     if(Object.keys(exs).length>0){
-      await supabase.from("custom_exercises").upsert({
-        user_id:currentUser.id,
-        data:exs,
-        updated_at:new Date().toISOString()
-      }, {onConflict:"user_id"});
+      await sbDataRequest("/custom_exercises?user_id=eq."+uid, {
+        method:"DELETE", headers:{"Prefer":"return=minimal"}
+      }).catch(()=>{});
+      await sbDataRequest("/custom_exercises", {
+        method:"POST",
+        headers:{"Prefer":"return=minimal"},
+        body: JSON.stringify({user_id:uid, data:exs, updated_at:new Date().toISOString()})
+      });
     }
     
     showSync("ok");
   } catch(e){
-    console.error("Sync error:", e);
+    console.error("Sync error:", e.message);
     showSync("");
   }
 }
 
 async function loadFromCloud(){
-  if(!currentUser||!supabase) return;
+  if(!currentUser||!currentSession) return;
   showSync("syncing");
   try{
+    const uid = currentUser.id;
+    
     // Load profile
-    const {data:prof}=await supabase.from("profiles").select("*").eq("id",currentUser.id).single();
-    if(prof){
-      const p={peso:prof.peso,altura:prof.altura,edad:prof.edad,sexo:prof.sexo,act:prof.act,obj:prof.obj};
-      ss("profile", p);
+    const profRows = await sbDataRequest("/profiles?id=eq."+uid+"&select=*");
+    if(profRows && profRows[0]){
+      const prof = profRows[0];
+      ss("profile", {peso:prof.peso,altura:prof.altura,edad:prof.edad,sexo:prof.sexo,act:prof.act,obj:prof.obj});
     }
     
     // Load days
-    const {data:dayRows}=await supabase.from("days").select("*").eq("user_id",currentUser.id);
-    if(dayRows&&dayRows.length>0){
+    const dayRows = await sbDataRequest("/days?user_id=eq."+uid+"&select=*");
+    if(dayRows && dayRows.length>0){
       const days={};
       dayRows.forEach(r=>{ days[r.date]=r.data; });
       ss("days", days);
     }
     
     // Load custom foods
-    const {data:foodRow}=await supabase.from("custom_foods").select("*").eq("user_id",currentUser.id).single();
-    if(foodRow) ss("customFoods", foodRow.data);
+    const foodRows = await sbDataRequest("/custom_foods?user_id=eq."+uid+"&select=*");
+    if(foodRows && foodRows[0]) ss("customFoods", foodRows[0].data);
     
     // Load custom exercises
-    const {data:exRow}=await supabase.from("custom_exercises").select("*").eq("user_id",currentUser.id).single();
-    if(exRow) ss("customExercises", exRow.data);
+    const exRows = await sbDataRequest("/custom_exercises?user_id=eq."+uid+"&select=*");
+    if(exRows && exRows[0]) ss("customExercises", exRows[0].data);
     
     showSync("ok");
   } catch(e){
-    console.error("Load error:", e);
+    console.error("Load error:", e.message);
     showSync("");
   }
 }
 
-// Debounced auto-sync — fires 3s after any data change
 function scheduleSyncToCloud(){
   clearTimeout(syncDebounce);
   syncDebounce=setTimeout(syncToCloud, 3000);
 }
 
-// Patch ss() to auto-sync
 const _ss_orig = ss;
 function ss(k,v){
   _ss_orig(k,v);
@@ -2300,38 +2334,37 @@ function ss(k,v){
   }
 }
 
-// ── AUTH STATE LISTENER ───────────────────────────────────────────
-if(supabase) supabase.auth.onAuthStateChange(async (event, session)=>{
-  if(session?.user){
-    currentUser=session.user;
-    updateUserBadge(currentUser);
-    document.getElementById("auth-screen").style.display="none";
-    document.getElementById("app").style.display="flex";
-    // Load cloud data then render
-    await loadFromCloud();
-    const hdEl=document.getElementById("hoy-date");
-    if(hdEl) hdEl.value=selectedHoyDate||TODAY;
-    renderHoy();
-    if(typeof renderPerfil==="function") renderPerfil();
-  } else {
-    currentUser=null;
-    document.getElementById("auth-screen").style.display="flex";
-    document.getElementById("app").style.display="none";
-    document.getElementById("user-badge").style.display="none";
-  }
-});
+async function onLoginSuccess(){
+  updateUserBadge(currentUser);
+  document.getElementById("auth-screen").style.display="none";
+  document.getElementById("app").style.display="flex";
+  await loadFromCloud();
+  const hdEl=document.getElementById("hoy-date");
+  if(hdEl) hdEl.value=selectedHoyDate||TODAY;
+  renderHoy();
+  if(typeof renderPerfil==="function") renderPerfil();
+}
 
-// ── INIT ──────────────────────────────────────────────────────────
-// Show auth screen initially, Supabase will handle redirect
+// ── INIT: Check for existing session ──────────────────────────────
 document.getElementById("app").style.display="none";
 document.getElementById("auth-screen").style.display="flex";
 
-// Check for existing session
-if(supabase) supabase.auth.getSession().then(async ({ data: { session } })=>{
-  if(!session){
-    document.getElementById("auth-screen").style.display="flex";
+(async function initAuth(){
+  const saved = ls("sb_session", null);
+  if(saved && saved.access_token){
+    currentSession = saved;
+    currentUser = saved.user;
+    try{
+      // Verify session is still valid
+      await sbDataRequest("/profiles?id=eq."+currentUser.id+"&select=id");
+      await onLoginSuccess();
+    }catch(e){
+      // Session expired, show login
+      localStorage.removeItem("sb_session");
+      currentUser=null; currentSession=null;
+    }
   }
-});
+})();
 
 // Register Service Worker for PWA offline support
 if("serviceWorker" in navigator){
