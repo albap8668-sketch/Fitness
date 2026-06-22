@@ -2,14 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
 <title>Tracker · Fitness</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <!-- PWA Safari -->
 <link rel="manifest" href="./manifest.json">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Fitness">
 <meta name="theme-color" content="#0e0e10">
 <meta name="application-name" content="Fitness">
@@ -434,6 +434,19 @@ select option{background:#18181c}
     </div>
     <button class="btn primary wide" onclick="saveProfile()">Guardar y recalcular</button>
     <div class="macros-result" id="macros-result"></div>
+  </div>
+
+  <div class="prof-sec" style="margin-top:16px">
+    <div class="page-sub" style="margin-bottom:8px">Búsqueda con IA (Gemini)</div>
+    <div class="form-group" style="margin-bottom:8px">
+      <label class="form-label">API Key de Gemini</label>
+      <input type="password" class="form-input" id="p-gemini-key" placeholder="AIza...">
+    </div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;line-height:1.4">
+      Se guarda solo en este dispositivo (localStorage), nunca se sube a GitHub. Consíguela gratis en
+      <a href="https://aistudio.google.com/apikey" target="_blank" style="color:var(--accent)">aistudio.google.com/apikey</a>.
+    </div>
+    <button class="btn wide" onclick="saveGeminiKey()">Guardar API Key</button>
   </div>
 </div>
 

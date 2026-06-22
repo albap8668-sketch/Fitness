@@ -1,8 +1,11 @@
-// FitnessTracker Service Worker v2
-const CACHE = "fitness-v2";
+// FitnessTracker Service Worker v3
+const CACHE = "fitness-v3";
 const ASSETS = [
   "/Fitness/FitnessTracker.html",
   "/Fitness/manifest.json",
+  "/Fitness/icon-180.png",
+  "/Fitness/icon-192.png",
+  "/Fitness/icon-512.png",
 ];
 
 self.addEventListener("install", e => {
