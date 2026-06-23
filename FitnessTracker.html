@@ -1837,21 +1837,55 @@ function updateStepsPreview(){const v=+document.getElementById("steps-in").value
 function saveActivity(){const td=getTodayData();td.steps=+document.getElementById("steps-in").value||0;const dur=+document.getElementById("boxing-duration")?.value||90;if(td.boxingOn)td.boxingDuration=dur;saveTodayData(td);renderHoy();showToast("Guardado","ok");}
 
 // ─── GYM ──────────────────────────────────────────────────────────
+function isDS(schema){ return /DS/i.test(schema||""); }
+
+function renderNormalSetRow(s,si,ei,ex){
+  return `<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`;
+}
+
+function renderDSSetBlock(s,si,ei,ex){
+  const drops=s.drops||[{peso:"",reps:""},{peso:"",reps:""}];
+  const dropRow=(peso,reps,di)=>`<div class="set-row" style="gap:6px;margin-bottom:${di<2?4:0}px"><span style="font-size:10px;color:var(--accent);font-family:var(--mono);min-width:22px;flex-shrink:0">D${di+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${peso}" id="ex${ei}-s${si}-d${di}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${reps}" id="ex${ei}-s${si}-d${di}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`;
+  return `<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px"><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Serie ${si+1} · Dropset</div>${dropRow(s.peso||"",s.reps||"",0)}${dropRow(drops[0]?.peso||"",drops[0]?.reps||"",1)}${dropRow(drops[1]?.peso||"",drops[1]?.reps||"",2)}</div>`;
+}
+
 function renderGym(){const di=document.getElementById("gym-date");if(!di.value)di.value=TODAY;const routine=getRoutine();document.getElementById("day-tabs").innerHTML=Object.entries(routine).map(([d,r])=>`<button class="day-tab${+d===currentGymDay?" active":""}" onclick="selectGymDay(${d})" style="${+d===currentGymDay?"background:"+r.color+";border-color:"+r.color+";color:#0e0e10":""}">${r.short}</button>`).join("");renderGymEx();}
 function selectGymDay(d){currentGymDay=d;const routine=getRoutine();document.querySelectorAll(".day-tab").forEach((b,i)=>{const isA=i+1===d;b.classList.toggle("active",isA);const c=routine[i+1]?.color||"var(--accent)";b.style.background=isA?c:"";b.style.borderColor=isA?c:"";b.style.color=isA?"#0e0e10":"";});renderGymEx();}
 function renderGymEx(){
   const date=document.getElementById("gym-date")?.value||TODAY,routine=getRoutine(),day=routine[currentGymDay];if(!day)return;
   const allDays=getDays(),saved=(allDays[date]?.gym||{})[currentGymDay]||{},p=getProfile();
   document.getElementById("gym-ex-list").innerHTML=day.exercises.map((ex,ei)=>{
-    const sets=saved[ei]||Array(ex.sets).fill(null).map(()=>({peso:"",reps:""}));
+    const dsEx=isDS(ex.schema);
+    const defSet=()=>dsEx?{peso:"",reps:"",drops:[{peso:"",reps:""},{peso:"",reps:""}]}:{peso:"",reps:""};
+    const sets=saved[ei]||Array(ex.sets).fill(null).map(defSet);
     const prev=getPrevBest(currentGymDay,ei,date),exKcal=exerciseKcal(ex,sets,p.peso);
     const isCustom=ei>=ROUTINE_BASE[currentGymDay].exercises.length;
-    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>`<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-ROUTINE_BASE[currentGymDay].exercises.length})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
+    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>dsEx?renderDSSetBlock(s,si,ei,ex):renderNormalSetRow(s,si,ei,ex)).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-ROUTINE_BASE[currentGymDay].exercises.length})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
   }).join("")+`<div style="padding:0 18px;margin-bottom:16px"><button class="btn primary wide" onclick="saveAllSets(${day.exercises.length},'${date}')">Guardar toda la sesión</button></div>`;
 }
-function liveExKcal(ei,numSets,type){const p=getProfile();const sets=[];for(let si=0;si<numSets;si++){const pw=document.getElementById("ex"+ei+"-s"+si+"-p"),rw=document.getElementById("ex"+ei+"-s"+si+"-r");sets.push({peso:pw?.value||0,reps:rw?.value||0});}const met=GYM_METS[type]||3.5;let t=0;for(const s of sets){const r=+s.reps||0;if(!r)continue;t+=met*p.peso*((r*3/60+0.75)/60);}const el=document.getElementById("exkcal-"+ei);if(el){el.textContent="≈ "+Math.round(t)+" kcal quemadas";el.style.display=t>0?"block":"none";}}
+function liveExKcal(ei,numSets,type){
+  const p=getProfile(),ex=getRoutine()[currentGymDay]?.exercises[ei],dsEx=isDS(ex?.schema||"");
+  const allSets=[];
+  for(let si=0;si<numSets;si++){
+    if(dsEx){for(let di=0;di<3;di++){const pw=document.getElementById(`ex${ei}-s${si}-d${di}-p`),rw=document.getElementById(`ex${ei}-s${si}-d${di}-r`);if(pw&&rw)allSets.push({peso:pw.value||0,reps:rw.value||0});}}
+    else{const pw=document.getElementById(`ex${ei}-s${si}-p`),rw=document.getElementById(`ex${ei}-s${si}-r`);allSets.push({peso:pw?.value||0,reps:rw?.value||0});}
+  }
+  const met=GYM_METS[type]||3.5;let t=0;
+  for(const s of allSets){const r=+s.reps||0;if(!r)continue;t+=met*p.peso*((r*3/60+0.75)/60);}
+  const el=document.getElementById("exkcal-"+ei);if(el){el.textContent="≈ "+Math.round(t)+" kcal quemadas";el.style.display=t>0?"block":"none";}
+}
 function getPrevBest(dayN,exIdx,currentDate){const allDays=getDays();for(const d of Object.keys(allDays).filter(d=>d<currentDate).sort().reverse()){const g=allDays[d]?.gym;if(g&&g[dayN]&&g[dayN][exIdx]){const sets=(g[dayN][exIdx]||[]).filter(s=>s.peso&&s.reps);if(sets.length){const best=sets.reduce((a,s)=>(+s.peso)>(+a.peso)?s:a,sets[0]);return best.peso+"kg × "+best.reps+" reps";}}}return null;}
-function saveExSets(ei,numSets,date){const sets=[];for(let si=0;si<numSets;si++){const pw=document.getElementById("ex"+ei+"-s"+si+"-p"),rw=document.getElementById("ex"+ei+"-s"+si+"-r");sets.push({peso:pw?pw.value:"",reps:rw?rw.value:""});}const allDays=getDays();if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90};if(!allDays[date].gym)allDays[date].gym={};if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};allDays[date].gym[currentGymDay][ei]=sets;ss("days",allDays);const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}}
+function saveExSets(ei,numSets,date){
+  const ex=getRoutine()[currentGymDay]?.exercises[ei],dsEx=isDS(ex?.schema||"");
+  const sets=[];
+  for(let si=0;si<numSets;si++){
+    if(dsEx){
+      const g=di=>({peso:document.getElementById(`ex${ei}-s${si}-d${di}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${si}-d${di}-r`)?.value||""});
+      const d0=g(0);sets.push({peso:d0.peso,reps:d0.reps,drops:[g(1),g(2)]});
+    }else{sets.push({peso:document.getElementById(`ex${ei}-s${si}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${si}-r`)?.value||""});}
+  }
+  const allDays=getDays();if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90};if(!allDays[date].gym)allDays[date].gym={};if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};allDays[date].gym[currentGymDay][ei]=sets;ss("days",allDays);syncToCloud("days",allDays);const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
+}
 function saveAllSets(numEx,date){const day=getRoutine()[currentGymDay];for(let ei=0;ei<numEx;ei++)saveExSets(ei,day.exercises[ei].sets,date);showToast("Sesión guardada","ok");}
 function showAddExModal(){document.getElementById("add-ex-modal").classList.add("show");document.getElementById("new-ex-day").value=currentGymDay;}
 function closeAddExModal(){document.getElementById("add-ex-modal").classList.remove("show");}
@@ -1865,12 +1899,17 @@ let progTab='vol', progHistory=[];
 function getExHistory(dayN,exIdx){
   const allDays=getDays(), history=[];
   Object.keys(allDays).sort().forEach(date=>{
-    const sets=(allDays[date]?.gym?.[dayN]?.[exIdx]||[]).filter(s=>s.peso&&s.reps);
-    if(!sets.length)return;
-    const volume=Math.round(sets.reduce((a,s)=>a+(+s.peso*+s.reps),0));
-    const maxPeso=Math.max(...sets.map(s=>+s.peso));
-    const bestSet=sets.reduce((b,s)=>+s.peso>=+b.peso?s:b,sets[0]);
-    history.push({date,sets,volume,maxPeso,bestSet:maxPeso+"kg × "+bestSet.reps+" reps"});
+    const savedSets=allDays[date]?.gym?.[dayN]?.[exIdx]||[];
+    const allSets=[];
+    savedSets.forEach(s=>{
+      if(s.peso&&s.reps)allSets.push(s);
+      if(s.drops)s.drops.forEach(d=>{if(d.peso&&d.reps)allSets.push(d);});
+    });
+    if(!allSets.length)return;
+    const volume=Math.round(allSets.reduce((a,s)=>a+(+s.peso*+s.reps),0));
+    const maxPeso=Math.max(...allSets.map(s=>+s.peso));
+    const bestSet=allSets.reduce((b,s)=>+s.peso>=+b.peso?s:b,allSets[0]);
+    history.push({date,sets:savedSets,volume,maxPeso,bestSet:maxPeso+"kg × "+bestSet.reps+" reps"});
   });
   return history;
 }
