@@ -1,5 +1,5 @@
-// FitnessTracker Service Worker v3
-const CACHE = "fitness-v3";
+// FitnessTracker Service Worker v4
+const CACHE = "fitness-v4";
 const ASSETS = [
   "/Fitness/FitnessTracker.html",
   "/Fitness/manifest.json",
