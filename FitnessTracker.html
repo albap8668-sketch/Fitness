@@ -1942,8 +1942,16 @@ function renderProgress(){
   const color=isVol?'var(--accent)':'var(--teal)';
   const recent=progHistory.slice(-10);
   chart.innerHTML=renderLineChart(recent,key,label,color);
+  // Week-over-week comparison
+  const isoWeek=dateStr=>{const d=new Date(dateStr+"T00:00:00");const jan4=new Date(d.getFullYear(),0,4);const startOfWeek=new Date(jan4);startOfWeek.setDate(jan4.getDate()-(jan4.getDay()||7)+1);const diff=(d-startOfWeek)/(7*864e5);return d.getFullYear()+"-W"+String(Math.floor(diff)+1).padStart(2,"0");};
+  const byWeek={};progHistory.forEach(h=>{const w=isoWeek(h.date);if(!byWeek[w])byWeek[w]={vol:0,maxPeso:0};byWeek[w].vol+=h.volume;byWeek[w].maxPeso=Math.max(byWeek[w].maxPeso,h.maxPeso);});
+  const weeks=Object.keys(byWeek).sort();const curW=weeks[weeks.length-1],prevW=weeks[weeks.length-2];
+  let weekRow='';
+  if(curW&&prevW){const cv=isVol?byWeek[curW].vol:byWeek[curW].maxPeso,pv=isVol?byWeek[prevW].vol:byWeek[prevW].maxPeso;const diff=cv-pv,pct=pv?Math.round(Math.abs(diff)/pv*100):100;const arrow=diff>0?'↑':diff<0?'↓':'→';const ac=diff>0?'var(--green)':diff<0?'var(--red)':'var(--text3)';weekRow=`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:12px;color:var(--text3)">Esta semana vs anterior</div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-family:var(--mono);color:var(--text2)">${pv}→${cv}kg</span><span style="font-size:15px;font-weight:700;color:${ac}">${arrow}${pct}%</span></div></div>`;}
+  else if(curW&&!prevW){weekRow=`<div style="padding:6px 0;font-size:12px;color:var(--text3)">Solo 1 semana con datos — entrenrá la semana que viene para ver la comparativa.</div>`;}
+
   const rows=[...progHistory].reverse().slice(0,5);
-  table.innerHTML=`<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">${isVol?'Volumen por sesión':'Peso máx por sesión'}</div><div style="display:flex;flex-direction:column;gap:6px">${rows.map((h,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500;font-family:var(--mono)">${h.date}</div><div style="font-size:11px;color:var(--text3);margin-top:2px">${h.sets.filter(s=>s.peso&&s.reps).length} series · mejor: ${h.bestSet}</div></div><div style="font-size:16px;font-weight:500;font-family:var(--mono);color:${i===0?color:'var(--text2)'}">${isVol?h.volume:h.maxPeso}kg</div></div>`).join('')}</div>`;
+  table.innerHTML=weekRow+`<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">${isVol?'Volumen por sesión':'Peso máx por sesión'}</div><div style="display:flex;flex-direction:column;gap:6px">${rows.map((h,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500;font-family:var(--mono)">${h.date}</div><div style="font-size:11px;color:var(--text3);margin-top:2px">${h.sets.filter(s=>s.peso&&s.reps).length} series · mejor: ${h.bestSet}</div></div><div style="font-size:16px;font-weight:500;font-family:var(--mono);color:${i===0?color:'var(--text2)'}">${isVol?h.volume:h.maxPeso}kg</div></div>`).join('')}</div>`;
 }
 
 function renderLineChart(data,key,label,color){
