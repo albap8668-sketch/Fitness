@@ -25,11 +25,11 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden}
 body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
-#app{display:flex;flex-direction:column;height:100vh;max-width:480px;margin:0 auto}
-#content{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 0 80px}
+#app{display:flex;flex-direction:column;height:100vh;max-width:480px;margin:0 auto;padding-top:env(safe-area-inset-top)}
+#content{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 0 calc(80px + env(safe-area-inset-bottom))}
 #content::-webkit-scrollbar{width:3px}
 #content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
-#nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding:8px 0 max(8px,env(safe-area-inset-bottom))}
+#nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;border:none;background:none;color:var(--text3);cursor:pointer;font-family:var(--font);font-size:10px;letter-spacing:0.04em;text-transform:uppercase;transition:color 0.15s}
 .nav-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .nav-btn.active{color:var(--accent)}
@@ -685,14 +685,6 @@ function initFirebase(){
   firebase.initializeApp(firebaseConfig);
   fbAuth = firebase.auth();
   fbDb = firebase.firestore();
-  fbAuth.getRedirectResult().then(result => {
-    if(result && result.user){
-      const nombre = result.user.displayName ? result.user.displayName.split(" ")[0] : "usuario";
-      showToast("¡Bienvenido, "+nombre+"!","ok");
-    }
-  }).catch(e => {
-    if(e.code && e.code !== "auth/no-auth-event") showToast("Error al iniciar sesión","err");
-  });
   fbAuth.onAuthStateChanged(user => {
     fbUser = user;
     updateAuthUI();
@@ -700,9 +692,13 @@ function initFirebase(){
   });
 }
 
-function signInWithGoogle(){
+async function signInWithGoogle(){
   const provider = new firebase.auth.GoogleAuthProvider();
-  fbAuth.signInWithRedirect(provider);
+  try {
+    await fbAuth.signInWithPopup(provider);
+  } catch(e){
+    if(e.code !== "auth/popup-closed-by-user") showToast("Error al iniciar sesión","err");
+  }
 }
 
 function fbSignOut(){
