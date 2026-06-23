@@ -1317,9 +1317,12 @@ function doSearch(q){
   if(!results.length){
     el.innerHTML=`<div class="search-no-result">
       <p>No encontramos "${q}" en la base de datos.</p>
-      <button class="add-new-btn" onclick="showNewFoodModal('${q}')">
+      <button class="add-new-btn" id="gemini-search-btn" onclick="doGeminiSearch('${q.replace(/'/g,"\\'")}')">
+        🤖 Buscar con IA
+      </button>
+      <button class="add-new-btn" style="background:none;border-color:var(--border2);color:var(--text2)" onclick="showNewFoodModal('${q.replace(/'/g,"\\'")}')">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Agregar "${q}" como alimento nuevo
+        Agregar manualmente
       </button>
     </div>`;
     el.classList.add("show");return;
@@ -1810,7 +1813,48 @@ function renderSemana(){
 function showDayDetail(date){const allDays=getDays(),d=allDays[date]||{foods:[],steps:0,gym:{}},t=getTotals(d.foods||[]),tgt=getDayTargets(d);document.getElementById("day-det-box").innerHTML=`<div class="day-det"><div class="day-det-hdr"><span style="font-size:13px;font-weight:500;font-family:var(--mono)">${date}</span><button style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer" onclick="document.getElementById('day-det-box').innerHTML=''">×</button></div><div class="brow"><span class="bkey">Consumido</span><span class="bval">${Math.round(t.cal)} kcal</span></div><div class="brow"><span class="bkey">Gasto total</span><span class="bval">${tgt.burned} kcal</span></div><div class="brow"><span class="bkey">Proteínas</span><span class="bval">${Math.round(t.prot)}g</span></div><div class="brow"><span class="bkey">Gym 🏋️</span><span class="bval">${d.gymOn?"Sí (+"+tgt.gc+" kcal)":"No"}</span></div><div class="brow"><span class="bkey">Boxeo 🥊</span><span class="bval">${d.boxingOn?"Sí "+( d.boxingDuration||90)+"min (+"+tgt.bc+" kcal)":"No"}</span></div></div>`;}
 
 // ─── PERFIL ───────────────────────────────────────────────────────
-function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();}
+function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();const k=document.getElementById("p-gemini-key");if(k)k.value=getGeminiKey();}
+
+// ─── GEMINI ───────────────────────────────────────────────────────
+function getGeminiKey(){return localStorage.getItem("geminiKey")||"";}
+function saveGeminiKey(){const k=document.getElementById("p-gemini-key").value.trim();if(!k){showToast("Ingresá una API Key","err");return;}localStorage.setItem("geminiKey",k);showToast("API Key guardada ✓","ok");}
+
+async function searchFoodWithGemini(query){
+  const key=getGeminiKey();
+  if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return null;}
+  const prompt=`Devuelve los valores nutricionales por 100g de: "${query}". Responde SOLO con JSON válido con estas claves exactas: nombre, calorias_100g, proteinas_100g, carbohidratos_100g, grasas_100g. Sin texto extra.`;
+  try {
+    const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}})
+    });
+    if(!res.ok){showToast("Error de Gemini ("+res.status+")","err");return null;}
+    const data=await res.json();
+    const text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!text){showToast("Gemini no respondió","err");return null;}
+    const food=JSON.parse(text);
+    if(!food.nombre||food.calorias_100g==null){showToast("Respuesta inválida de Gemini","err");return null;}
+    return {n:food.nombre,c:+food.calorias_100g,p:+food.proteinas_100g,ch:+food.carbohidratos_100g,g:+food.grasas_100g,cat:"🤖",src:"gemini"};
+  } catch(e){showToast("Error al contactar Gemini","err");console.error(e);return null;}
+}
+
+async function doGeminiSearch(query){
+  const btn=document.getElementById("gemini-search-btn");
+  if(btn){btn.disabled=true;btn.textContent="Buscando con IA...";}
+  const food=await searchFoodWithGemini(query);
+  if(btn){btn.disabled=false;btn.textContent="🤖 Buscar con IA";}
+  if(!food)return;
+  // Guardar en despensa automáticamente
+  const foods=getCustomFoods();
+  const exists=foods.find(f=>f.name.toLowerCase()===food.n.toLowerCase());
+  if(!exists){
+    foods.push({id:getNextFoodId(),name:food.n,cal:food.c,prot:food.p,carb:food.ch,fat:food.g,cat:food.cat,notes:"Gemini",createdAt:TODAY,src:"gemini"});
+    saveCustomFoods(foods);
+  }
+  document.getElementById("search-results").classList.remove("show");
+  selectFood(food);
+}
 function saveProfile(){const p={peso:+document.getElementById("p-peso").value||78,altura:+document.getElementById("p-altura").value||173,edad:+document.getElementById("p-edad").value||20,sexo:document.getElementById("p-sexo").value,act:+document.getElementById("p-act").value||1.375,obj:document.getElementById("p-obj").value};ss("profile",p);syncToCloud("profile",p);showMacrosResult();showToast("Perfil guardado","ok");}
 function showMacrosResult(){const p=getProfile(),bmr=Math.round(calcBMR(p)),tdee=Math.round(bmr*p.act),target=p.obj==="deficit"?tdee-400:p.obj==="surplus"?tdee+200:tdee,prot=Math.round(p.peso*2.2),fat=Math.round(target*0.25/9),carb=Math.max(0,Math.round((target-prot*4-fat*9)/4));const objL={deficit:"Perder grasa",recomp:"Recomposición",surplus:"Ganar músculo"};document.getElementById("macros-result").innerHTML=`<div class="mr-title">Macros base (sin actividad extra)</div><div class="mr-row"><span class="mr-name">Objetivo</span><span class="mr-val" style="font-size:13px;color:var(--accent)">${objL[p.obj]}</span></div><div class="mr-row"><span class="mr-name">BMR</span><span class="mr-val">${bmr} kcal</span></div><div class="mr-row"><span class="mr-name">TDEE</span><span class="mr-val">${tdee} kcal</span></div><div class="mr-row"><span class="mr-name">Proteínas</span><span class="mr-val" style="color:var(--teal)">${prot}g</span></div><div class="mr-row"><span class="mr-name">Carbohidratos</span><span class="mr-val" style="color:var(--purple)">${carb}g</span></div><div class="mr-row"><span class="mr-name">Grasas</span><span class="mr-val" style="color:var(--amber)">${fat}g</span></div><div style="padding:10px 14px;font-size:11px;color:var(--text3)">La meta real se ajusta cada día según pasos, gym y boxeo.</div>`;}
 
