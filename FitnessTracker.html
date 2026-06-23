@@ -16,6 +16,10 @@
 <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
 <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png">
 <link rel="apple-touch-icon" sizes="512x512" href="./icon-512.png">
+<!-- Firebase SDK (compat, funciona sin build tools) -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
 <style>
 :root{--bg:#0e0e10;--surface:#18181c;--surface2:#222228;--surface3:#2c2c34;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);--text:#f0f0f0;--text2:#9090a0;--text3:#5a5a6a;--accent:#c8f564;--accent-dim:rgba(200,245,100,0.12);--accent-dim2:rgba(200,245,100,0.06);--red:#ff5e5e;--red-dim:rgba(255,94,94,0.12);--amber:#ffc947;--amber-dim:rgba(255,201,71,0.12);--blue:#64b5f6;--teal:#4dd0a0;--teal-dim:rgba(77,208,160,0.12);--purple:#b39ddb;--purple-dim:rgba(179,157,219,0.12);--r:10px;--r-sm:6px;--font:"DM Sans",sans-serif;--mono:"DM Mono",monospace}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -411,6 +415,29 @@ select option{background:#18181c}
 <!-- PERFIL -->
 <div id="sec-perfil" class="section">
   <div class="page-header"><div><div class="page-title">Perfil</div><div class="page-sub">Tus datos y macros</div></div></div>
+
+  <!-- Firebase Auth UI -->
+  <div class="prof-sec" style="margin-bottom:0">
+    <!-- Estado: no logueado -->
+    <button id="fb-login-btn" class="btn primary wide" onclick="signInWithGoogle()" style="display:flex;align-items:center;justify-content:center;gap:10px;padding:12px">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+      Iniciar sesión con Google
+    </button>
+    <div style="font-size:12px;color:var(--text3);text-align:center;margin-top:8px;line-height:1.5">
+      Tus datos se sincronizan entre dispositivos. Sin cuenta, todo queda solo en este teléfono.
+    </div>
+    <!-- Estado: logueado -->
+    <div id="fb-user-info" style="display:none;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:12px 14px">
+      <img id="fb-avatar" src="" style="width:38px;height:38px;border-radius:50%;object-fit:cover;flex-shrink:0">
+      <div style="flex:1;min-width:0">
+        <div id="fb-name" style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+        <div style="font-size:11px;color:var(--teal);margin-top:2px">● Sincronizado con la nube</div>
+      </div>
+      <button class="btn" onclick="fbSignOut()" style="font-size:12px;padding:5px 10px;flex-shrink:0">Salir</button>
+    </div>
+  </div>
+  <div class="divider"></div>
+
   <div class="prof-sec">
     <div class="form-row" style="margin-bottom:12px">
       <div class="form-group"><label class="form-label">Peso (kg)</label><input type="number" class="form-input" id="p-peso" step="0.1"></div>
@@ -642,6 +669,85 @@ select option{background:#18181c}
 <div class="toast" id="toast"></div>
 
 <script>
+// ─── FIREBASE ─────────────────────────────────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyAW0Os38GwmR6uXacsrc--w1djnmUQzt5Y",
+  authDomain: "fitness-tracker-b46ad.firebaseapp.com",
+  projectId: "fitness-tracker-b46ad",
+  storageBucket: "fitness-tracker-b46ad.firebasestorage.app",
+  messagingSenderId: "143264606965",
+  appId: "1:143264606965:web:7cf0032b6a521f8cd473bc"
+};
+const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter"];
+let fbAuth = null, fbDb = null, fbUser = null;
+
+function initFirebase(){
+  firebase.initializeApp(firebaseConfig);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+  fbAuth.getRedirectResult().then(result => {
+    if(result && result.user){
+      const nombre = result.user.displayName ? result.user.displayName.split(" ")[0] : "usuario";
+      showToast("¡Bienvenido, "+nombre+"!","ok");
+    }
+  }).catch(e => {
+    if(e.code && e.code !== "auth/no-auth-event") showToast("Error al iniciar sesión","err");
+  });
+  fbAuth.onAuthStateChanged(user => {
+    fbUser = user;
+    updateAuthUI();
+    if(user) syncFromCloud();
+  });
+}
+
+function signInWithGoogle(){
+  const provider = new firebase.auth.GoogleAuthProvider();
+  fbAuth.signInWithRedirect(provider);
+}
+
+function fbSignOut(){
+  fbAuth.signOut().then(() => { fbUser = null; updateAuthUI(); showToast("Sesión cerrada","ok"); });
+}
+
+async function syncToCloud(key, value){
+  if(!fbUser || !fbDb) return;
+  try {
+    await fbDb.collection("users").doc(fbUser.uid).set({[key]: value}, {merge: true});
+  } catch(e){ console.warn("syncToCloud error:", e); }
+}
+
+async function syncFromCloud(){
+  if(!fbUser || !fbDb) return;
+  try {
+    const doc = await fbDb.collection("users").doc(fbUser.uid).get();
+    if(doc.exists){
+      const data = doc.data();
+      for(const key of SYNC_KEYS){
+        if(data[key] !== undefined) ss(key, data[key]);
+      }
+      renderHoy();
+      showToast("Datos sincronizados ✓","ok");
+    }
+  } catch(e){ console.warn("syncFromCloud error:", e); }
+}
+
+function updateAuthUI(){
+  const btn = document.getElementById("fb-login-btn");
+  const info = document.getElementById("fb-user-info");
+  if(!btn || !info) return;
+  if(fbUser){
+    btn.style.display = "none";
+    info.style.display = "flex";
+    const avatar = document.getElementById("fb-avatar");
+    if(avatar) avatar.src = fbUser.photoURL || "";
+    const nameEl = document.getElementById("fb-name");
+    if(nameEl) nameEl.textContent = fbUser.displayName || fbUser.email;
+  } else {
+    btn.style.display = "flex";
+    info.style.display = "none";
+  }
+}
+
 // ─── CONSTANTS ────────────────────────────────────────────────────
 const TODAY = new Date().toISOString().split("T")[0];
 let selectedHoyDate = TODAY;
@@ -1158,13 +1264,14 @@ function saveDayData(date,data){
   const d=getDays();
   d[date]=data;
   ss("days",d);
+  syncToCloud("days",d);
 }
 function getTodayData(){return getDayData(selectedHoyDate)}
 function saveTodayData(data){saveDayData(selectedHoyDate,data)}
 function getRoutine(){const c=ls("customExercises",{});const r={};for(const d in ROUTINE_BASE){r[d]={...ROUTINE_BASE[d],exercises:[...ROUTINE_BASE[d].exercises,...(c[d]||[])]};}return r;}
 // CUSTOM FOODS (user despensa)
 function getCustomFoods(){return ls("customFoods",[])}
-function saveCustomFoods(arr){ss("customFoods",arr)}
+function saveCustomFoods(arr){ss("customFoods",arr);syncToCloud("customFoods",arr);}
 function getNextFoodId(){const id=ls("foodIdCounter",1);ss("foodIdCounter",id+1);return id}
 
 // ─── CALCULATIONS ─────────────────────────────────────────────────
@@ -1687,8 +1794,8 @@ function saveAllSets(numEx,date){const day=getRoutine()[currentGymDay];for(let e
 function showAddExModal(){document.getElementById("add-ex-modal").classList.add("show");document.getElementById("new-ex-day").value=currentGymDay;}
 function closeAddExModal(){document.getElementById("add-ex-modal").classList.remove("show");}
 document.getElementById("add-ex-modal").addEventListener("click",function(e){if(e.target===this)closeAddExModal();});
-function addExerciseToRoutine(){const dayN=+document.getElementById("new-ex-day").value,name=document.getElementById("new-ex-name").value.trim(),muscle=document.getElementById("new-ex-muscle").value.trim(),sets=+document.getElementById("new-ex-sets").value||3,schema=document.getElementById("new-ex-schema").value.trim()||sets+"x10-12",type=document.getElementById("new-ex-type").value;if(!name){showToast("Ingresá el nombre","err");return;}const custom=ls("customExercises",{});if(!custom[dayN])custom[dayN]=[];custom[dayN].push({name,muscle,sets,schema,type});ss("customExercises",custom);closeAddExModal();currentGymDay=dayN;renderGym();showToast("Ejercicio agregado","ok");}
-function deleteCustomEx(dayN,customIdx){if(!confirm("¿Eliminar este ejercicio?"))return;const custom=ls("customExercises",{});if(custom[dayN])custom[dayN].splice(customIdx,1);ss("customExercises",custom);renderGym();showToast("Eliminado","ok");}
+function addExerciseToRoutine(){const dayN=+document.getElementById("new-ex-day").value,name=document.getElementById("new-ex-name").value.trim(),muscle=document.getElementById("new-ex-muscle").value.trim(),sets=+document.getElementById("new-ex-sets").value||3,schema=document.getElementById("new-ex-schema").value.trim()||sets+"x10-12",type=document.getElementById("new-ex-type").value;if(!name){showToast("Ingresá el nombre","err");return;}const custom=ls("customExercises",{});if(!custom[dayN])custom[dayN]=[];custom[dayN].push({name,muscle,sets,schema,type});ss("customExercises",custom);syncToCloud("customExercises",custom);closeAddExModal();currentGymDay=dayN;renderGym();showToast("Ejercicio agregado","ok");}
+function deleteCustomEx(dayN,customIdx){if(!confirm("¿Eliminar este ejercicio?"))return;const custom=ls("customExercises",{});if(custom[dayN])custom[dayN].splice(customIdx,1);ss("customExercises",custom);syncToCloud("customExercises",custom);renderGym();showToast("Eliminado","ok");}
 
 // ─── SEMANA ───────────────────────────────────────────────────────
 function renderSemana(){
@@ -1707,7 +1814,7 @@ function showDayDetail(date){const allDays=getDays(),d=allDays[date]||{foods:[],
 
 // ─── PERFIL ───────────────────────────────────────────────────────
 function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();}
-function saveProfile(){const p={peso:+document.getElementById("p-peso").value||78,altura:+document.getElementById("p-altura").value||173,edad:+document.getElementById("p-edad").value||20,sexo:document.getElementById("p-sexo").value,act:+document.getElementById("p-act").value||1.375,obj:document.getElementById("p-obj").value};ss("profile",p);showMacrosResult();showToast("Perfil guardado","ok");}
+function saveProfile(){const p={peso:+document.getElementById("p-peso").value||78,altura:+document.getElementById("p-altura").value||173,edad:+document.getElementById("p-edad").value||20,sexo:document.getElementById("p-sexo").value,act:+document.getElementById("p-act").value||1.375,obj:document.getElementById("p-obj").value};ss("profile",p);syncToCloud("profile",p);showMacrosResult();showToast("Perfil guardado","ok");}
 function showMacrosResult(){const p=getProfile(),bmr=Math.round(calcBMR(p)),tdee=Math.round(bmr*p.act),target=p.obj==="deficit"?tdee-400:p.obj==="surplus"?tdee+200:tdee,prot=Math.round(p.peso*2.2),fat=Math.round(target*0.25/9),carb=Math.max(0,Math.round((target-prot*4-fat*9)/4));const objL={deficit:"Perder grasa",recomp:"Recomposición",surplus:"Ganar músculo"};document.getElementById("macros-result").innerHTML=`<div class="mr-title">Macros base (sin actividad extra)</div><div class="mr-row"><span class="mr-name">Objetivo</span><span class="mr-val" style="font-size:13px;color:var(--accent)">${objL[p.obj]}</span></div><div class="mr-row"><span class="mr-name">BMR</span><span class="mr-val">${bmr} kcal</span></div><div class="mr-row"><span class="mr-name">TDEE</span><span class="mr-val">${tdee} kcal</span></div><div class="mr-row"><span class="mr-name">Proteínas</span><span class="mr-val" style="color:var(--teal)">${prot}g</span></div><div class="mr-row"><span class="mr-name">Carbohidratos</span><span class="mr-val" style="color:var(--purple)">${carb}g</span></div><div class="mr-row"><span class="mr-name">Grasas</span><span class="mr-val" style="color:var(--amber)">${fat}g</span></div><div style="padding:10px 14px;font-size:11px;color:var(--text3)">La meta real se ajusta cada día según pasos, gym y boxeo.</div>`;}
 
 // ─── NAV ──────────────────────────────────────────────────────────
@@ -2015,6 +2122,9 @@ let toastTimer;
 function showToast(msg,type="ok"){const t=document.getElementById("toast");t.textContent=msg;t.className="toast "+type;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2500);}
 document.getElementById("hoy-date").value=TODAY;
 renderHoy();
+
+// Inicializar Firebase
+initFirebase();
 
 // Register Service Worker for PWA offline support
 if("serviceWorker" in navigator){
