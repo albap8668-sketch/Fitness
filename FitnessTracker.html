@@ -24,13 +24,13 @@
 :root{--bg:#0e0e10;--surface:#18181c;--surface2:#222228;--surface3:#2c2c34;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);--text:#f0f0f0;--text2:#9090a0;--text3:#5a5a6a;--accent:#c8f564;--accent-dim:rgba(200,245,100,0.12);--accent-dim2:rgba(200,245,100,0.06);--red:#ff5e5e;--red-dim:rgba(255,94,94,0.12);--amber:#ffc947;--amber-dim:rgba(255,201,71,0.12);--blue:#64b5f6;--teal:#4dd0a0;--teal-dim:rgba(77,208,160,0.12);--purple:#b39ddb;--purple-dim:rgba(179,157,219,0.12);--r:10px;--r-sm:6px;--font:"DM Sans",sans-serif;--mono:"DM Mono",monospace}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden}
-body::after{content:'';position:fixed;bottom:0;left:0;right:0;height:env(safe-area-inset-bottom);background:var(--surface);z-index:99}
 body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:15px;line-height:1.5}
 #app{display:flex;flex-direction:column;height:100vh;max-width:480px;margin:0 auto;padding-top:env(safe-area-inset-top)}
-#content{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 0 calc(80px + env(safe-area-inset-bottom))}
+#content{flex:1;overflow-y:auto;overflow-x:hidden;padding:0 0 calc(100px + env(safe-area-inset-bottom))}
 #content::-webkit-scrollbar{width:3px}
 #content::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
 #nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:100;padding:8px 0 calc(8px + env(safe-area-inset-bottom))}
+#nav::after{content:'';position:absolute;top:100%;left:0;right:0;height:env(safe-area-inset-bottom);background:var(--surface)}
 .nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 0;border:none;background:none;color:var(--text3);cursor:pointer;font-family:var(--font);font-size:10px;letter-spacing:0.04em;text-transform:uppercase;transition:color 0.15s}
 .nav-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 .nav-btn.active{color:var(--accent)}
