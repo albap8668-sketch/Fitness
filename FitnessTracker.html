@@ -308,7 +308,14 @@ select option{background:#18181c}
     </div>
   </div>
   <div class="divider"></div>
-  <div class="sec-label">Agregar comida</div>
+  <div class="sec-label" style="display:flex;align-items:center;justify-content:space-between;padding-right:18px">
+    <span>Agregar comida</span>
+    <button onclick="openCamera()" style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:5px 10px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;font-family:var(--font)">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+      Foto
+    </button>
+  </div>
+  <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
   <div class="food-search-wrap" id="food-search-wrap">
     <div class="search-box">
       <div class="search-top">
@@ -649,6 +656,44 @@ select option{background:#18181c}
       </select>
     </div>
     <button class="btn primary wide" onclick="addExerciseToRoutine()">Agregar a la rutina</button>
+  </div>
+</div>
+
+<!-- FOTO MODAL -->
+<div class="modal-overlay" id="foto-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">📸 Análisis de foto</div>
+      <button class="modal-close" onclick="closeFotoModal()">×</button>
+    </div>
+    <div id="foto-loading" style="text-align:center;padding:24px 0;display:none">
+      <div style="font-size:32px;margin-bottom:10px">🤖</div>
+      <div style="font-size:14px;color:var(--text2)">Analizando la foto...</div>
+    </div>
+    <div id="foto-result" style="display:none">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.5">Gemini estimó estos valores. Revisalos y editá lo que sea necesario antes de guardar.</div>
+      <div class="form-group"><label class="form-label">Plato / alimento</label><input type="text" class="form-input" id="foto-nombre"></div>
+      <div class="form-group"><label class="form-label">Porción estimada (g)</label><input type="number" class="form-input" id="foto-gramos" min="1" oninput="updateFotoPreview()"></div>
+      <div style="background:var(--surface2);border-radius:var(--r);padding:12px 14px;margin-bottom:16px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">Macros para esta porción</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">
+          <div><div style="font-size:18px;font-weight:500;font-family:var(--mono)" id="foto-cal-preview">—</div><div style="font-size:10px;color:var(--text3)">kcal</div></div>
+          <div><div style="font-size:18px;font-weight:500;font-family:var(--mono);color:var(--teal)" id="foto-prot-preview">—</div><div style="font-size:10px;color:var(--text3)">prot g</div></div>
+          <div><div style="font-size:18px;font-weight:500;font-family:var(--mono);color:var(--purple)" id="foto-carb-preview">—</div><div style="font-size:10px;color:var(--text3)">carb g</div></div>
+          <div><div style="font-size:18px;font-weight:500;font-family:var(--mono);color:var(--amber)" id="foto-fat-preview">—</div><div style="font-size:10px;color:var(--text3)">grasas g</div></div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Editar macros por 100g si querés ajustar</div>
+      <div class="form-row" style="margin-bottom:10px">
+        <div class="form-group"><label class="form-label">kcal/100g</label><input type="number" class="form-input" id="foto-cal100" min="0" oninput="updateFotoPreview()"></div>
+        <div class="form-group"><label class="form-label">Prot/100g</label><input type="number" class="form-input" id="foto-prot100" min="0" step="0.1" oninput="updateFotoPreview()"></div>
+      </div>
+      <div class="form-row" style="margin-bottom:16px">
+        <div class="form-group"><label class="form-label">Carb/100g</label><input type="number" class="form-input" id="foto-carb100" min="0" step="0.1" oninput="updateFotoPreview()"></div>
+        <div class="form-group"><label class="form-label">Grasas/100g</label><input type="number" class="form-input" id="foto-fat100" min="0" step="0.1" oninput="updateFotoPreview()"></div>
+      </div>
+      <button class="btn primary wide" onclick="confirmFotoFood()">Agregar al registro</button>
+    </div>
   </div>
 </div>
 
@@ -1837,6 +1882,95 @@ async function searchFoodWithGemini(query){
     if(!food.nombre||food.calorias_100g==null){showToast("Respuesta inválida de Gemini","err");return null;}
     return {n:food.nombre,c:+food.calorias_100g,p:+food.proteinas_100g,ch:+food.carbohidratos_100g,g:+food.grasas_100g,cat:"🤖",src:"gemini"};
   } catch(e){showToast("Error al contactar Gemini","err");console.error(e);return null;}
+}
+
+// ─── FOTO / VISIÓN ────────────────────────────────────────────────
+function openCamera(){ document.getElementById("foto-input").value=""; document.getElementById("foto-input").click(); }
+
+function onPhotoSelected(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(!getGeminiKey()){ showToast("Primero guardá tu API Key de Gemini en Perfil","err"); return; }
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    const dataUrl = e.target.result;
+    const base64 = dataUrl.split(",")[1];
+    const mimeType = file.type || "image/jpeg";
+    document.getElementById("foto-modal").classList.add("show");
+    document.getElementById("foto-loading").style.display = "block";
+    document.getElementById("foto-result").style.display = "none";
+    const data = await analyzePhotoWithGemini(base64, mimeType);
+    document.getElementById("foto-loading").style.display = "none";
+    if(data) showFotoResult(data);
+    else document.getElementById("foto-modal").classList.remove("show");
+  };
+  reader.readAsDataURL(file);
+}
+
+async function analyzePhotoWithGemini(base64, mimeType){
+  const key = getGeminiKey();
+  const prompt = `Analizá esta foto de comida. Estimá el plato, la porción y los valores nutricionales. Respondé SOLO con JSON válido con estas claves exactas: nombre_plato (string), porcion_gramos (número), calorias_100g (número), proteinas_100g (número), carbohidratos_100g (número), grasas_100g (número). Si no podés identificar comida, devolvé {"error": "no_food"}.`;
+  try {
+    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{
+      method:"POST",
+      headers:{"Content-Type":"application/json","x-goog-api-key":key},
+      body:JSON.stringify({
+        contents:[{parts:[
+          {inlineData:{mimeType, data:base64}},
+          {text:prompt}
+        ]}],
+        generationConfig:{responseMimeType:"application/json"}
+      })
+    });
+    if(!res.ok){ showToast("Error de Gemini ("+res.status+")","err"); return null; }
+    const json = await res.json();
+    const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!text){ showToast("Gemini no respondió","err"); return null; }
+    const data = JSON.parse(text);
+    if(data.error === "no_food"){ showToast("No pude identificar comida en la foto","err"); return null; }
+    if(!data.nombre_plato){ showToast("Respuesta inválida de Gemini","err"); return null; }
+    return data;
+  } catch(e){ showToast("Error al analizar la foto","err"); console.error(e); return null; }
+}
+
+function showFotoResult(data){
+  document.getElementById("foto-nombre").value = data.nombre_plato || "";
+  document.getElementById("foto-gramos").value = data.porcion_gramos || 100;
+  document.getElementById("foto-cal100").value = data.calorias_100g || 0;
+  document.getElementById("foto-prot100").value = data.proteinas_100g || 0;
+  document.getElementById("foto-carb100").value = data.carbohidratos_100g || 0;
+  document.getElementById("foto-fat100").value = data.grasas_100g || 0;
+  document.getElementById("foto-result").style.display = "block";
+  updateFotoPreview();
+}
+
+function updateFotoPreview(){
+  const g = +document.getElementById("foto-gramos").value || 0;
+  const f = g / 100;
+  document.getElementById("foto-cal-preview").textContent = Math.round((+document.getElementById("foto-cal100").value||0)*f);
+  document.getElementById("foto-prot-preview").textContent = +((+document.getElementById("foto-prot100").value||0)*f).toFixed(1);
+  document.getElementById("foto-carb-preview").textContent = +((+document.getElementById("foto-carb100").value||0)*f).toFixed(1);
+  document.getElementById("foto-fat-preview").textContent = +((+document.getElementById("foto-fat100").value||0)*f).toFixed(1);
+}
+
+function closeFotoModal(){ document.getElementById("foto-modal").classList.remove("show"); }
+document.getElementById("foto-modal").addEventListener("click", function(e){ if(e.target===this) closeFotoModal(); });
+
+function confirmFotoFood(){
+  const nombre = document.getElementById("foto-nombre").value.trim();
+  if(!nombre){ showToast("Ingresá un nombre","err"); return; }
+  const g = +document.getElementById("foto-gramos").value || 0;
+  if(!g){ showToast("Ingresá una porción","err"); return; }
+  const f = g / 100;
+  const item = {
+    name: "📸 " + nombre + " ("+Math.round(g)+"g estimado)",
+    cal: Math.round((+document.getElementById("foto-cal100").value||0)*f),
+    prot: +((+document.getElementById("foto-prot100").value||0)*f).toFixed(1),
+    carb: +((+document.getElementById("foto-carb100").value||0)*f).toFixed(1),
+    fat: +((+document.getElementById("foto-fat100").value||0)*f).toFixed(1),
+  };
+  const td = getTodayData(); td.foods.push(item); saveTodayData(td);
+  closeFotoModal(); renderHoy(); showToast(nombre+" agregado ✓","ok");
 }
 
 async function doGeminiSearch(query){
