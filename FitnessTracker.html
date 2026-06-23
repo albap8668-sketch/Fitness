@@ -659,6 +659,23 @@ select option{background:#18181c}
   </div>
 </div>
 
+<!-- PROGRESS MODAL -->
+<div class="modal-overlay" id="progress-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div><div class="modal-title" id="prog-title">Progreso</div><div style="font-size:12px;color:var(--text3);margin-top:2px" id="prog-sub"></div></div>
+      <button class="modal-close" onclick="closeProgressModal()">×</button>
+    </div>
+    <div class="mode-tabs" style="margin-bottom:14px">
+      <button class="mode-tab active" id="prog-tab-vol" onclick="switchProgTab('vol')">Volumen total</button>
+      <button class="mode-tab" id="prog-tab-peso" onclick="switchProgTab('peso')">Peso máximo</button>
+    </div>
+    <div id="prog-chart" style="margin-bottom:14px"></div>
+    <div id="prog-table"></div>
+    <div id="prog-empty" style="display:none;text-align:center;padding:24px;color:var(--text3);font-size:13px">Todavía no hay sesiones registradas para este ejercicio.</div>
+  </div>
+</div>
+
 <!-- FOTO MODAL -->
 <div class="modal-overlay" id="foto-modal">
   <div class="modal">
@@ -1829,7 +1846,7 @@ function renderGymEx(){
     const sets=saved[ei]||Array(ex.sets).fill(null).map(()=>({peso:"",reps:""}));
     const prev=getPrevBest(currentGymDay,ei,date),exKcal=exerciseKcal(ex,sets,p.peso);
     const isCustom=ei>=ROUTINE_BASE[currentGymDay].exercises.length;
-    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>`<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`).join("")}</div><div class="ex-footer"><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-ROUTINE_BASE[currentGymDay].exercises.length})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
+    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>`<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-ROUTINE_BASE[currentGymDay].exercises.length})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
   }).join("")+`<div style="padding:0 18px;margin-bottom:16px"><button class="btn primary wide" onclick="saveAllSets(${day.exercises.length},'${date}')">Guardar toda la sesión</button></div>`;
 }
 function liveExKcal(ei,numSets,type){const p=getProfile();const sets=[];for(let si=0;si<numSets;si++){const pw=document.getElementById("ex"+ei+"-s"+si+"-p"),rw=document.getElementById("ex"+ei+"-s"+si+"-r");sets.push({peso:pw?.value||0,reps:rw?.value||0});}const met=GYM_METS[type]||3.5;let t=0;for(const s of sets){const r=+s.reps||0;if(!r)continue;t+=met*p.peso*((r*3/60+0.75)/60);}const el=document.getElementById("exkcal-"+ei);if(el){el.textContent="≈ "+Math.round(t)+" kcal quemadas";el.style.display=t>0?"block":"none";}}
@@ -1841,6 +1858,73 @@ function closeAddExModal(){document.getElementById("add-ex-modal").classList.rem
 document.getElementById("add-ex-modal").addEventListener("click",function(e){if(e.target===this)closeAddExModal();});
 function addExerciseToRoutine(){const dayN=+document.getElementById("new-ex-day").value,name=document.getElementById("new-ex-name").value.trim(),muscle=document.getElementById("new-ex-muscle").value.trim(),sets=+document.getElementById("new-ex-sets").value||3,schema=document.getElementById("new-ex-schema").value.trim()||sets+"x10-12",type=document.getElementById("new-ex-type").value;if(!name){showToast("Ingresá el nombre","err");return;}const custom=ls("customExercises",{});if(!custom[dayN])custom[dayN]=[];custom[dayN].push({name,muscle,sets,schema,type});ss("customExercises",custom);syncToCloud("customExercises",custom);closeAddExModal();currentGymDay=dayN;renderGym();showToast("Ejercicio agregado","ok");}
 function deleteCustomEx(dayN,customIdx){if(!confirm("¿Eliminar este ejercicio?"))return;const custom=ls("customExercises",{});if(custom[dayN])custom[dayN].splice(customIdx,1);ss("customExercises",custom);syncToCloud("customExercises",custom);renderGym();showToast("Eliminado","ok");}
+
+// ─── GYM PROGRESS ─────────────────────────────────────────────────
+let progTab='vol', progHistory=[];
+
+function getExHistory(dayN,exIdx){
+  const allDays=getDays(), history=[];
+  Object.keys(allDays).sort().forEach(date=>{
+    const sets=(allDays[date]?.gym?.[dayN]?.[exIdx]||[]).filter(s=>s.peso&&s.reps);
+    if(!sets.length)return;
+    const volume=Math.round(sets.reduce((a,s)=>a+(+s.peso*+s.reps),0));
+    const maxPeso=Math.max(...sets.map(s=>+s.peso));
+    const bestSet=sets.reduce((b,s)=>+s.peso>=+b.peso?s:b,sets[0]);
+    history.push({date,sets,volume,maxPeso,bestSet:maxPeso+"kg × "+bestSet.reps+" reps"});
+  });
+  return history;
+}
+
+function showExProgress(dayN,exIdx){
+  const ex=getRoutine()[dayN]?.exercises[exIdx];if(!ex)return;
+  progHistory=getExHistory(dayN,exIdx);progTab='vol';
+  document.getElementById('prog-title').textContent=ex.name;
+  document.getElementById('prog-sub').textContent=ex.muscle+" · "+ex.schema;
+  document.getElementById('prog-tab-vol').classList.add('active');
+  document.getElementById('prog-tab-peso').classList.remove('active');
+  renderProgress();
+  document.getElementById('progress-modal').classList.add('show');
+}
+function closeProgressModal(){document.getElementById('progress-modal').classList.remove('show');}
+document.getElementById('progress-modal').addEventListener('click',function(e){if(e.target===this)closeProgressModal();});
+function switchProgTab(tab){
+  progTab=tab;
+  document.getElementById('prog-tab-vol').classList.toggle('active',tab==='vol');
+  document.getElementById('prog-tab-peso').classList.toggle('active',tab==='peso');
+  renderProgress();
+}
+
+function renderProgress(){
+  const empty=document.getElementById('prog-empty'),chart=document.getElementById('prog-chart'),table=document.getElementById('prog-table');
+  if(!progHistory.length){empty.style.display='block';chart.style.display='none';table.style.display='none';return;}
+  empty.style.display='none';chart.style.display='block';table.style.display='block';
+  const isVol=progTab==='vol',key=isVol?'volume':'maxPeso';
+  const label=isVol?'Volumen total (kg)':'Peso máximo (kg)';
+  const color=isVol?'var(--accent)':'var(--teal)';
+  const recent=progHistory.slice(-10);
+  chart.innerHTML=renderLineChart(recent,key,label,color);
+  const rows=[...progHistory].reverse().slice(0,5);
+  table.innerHTML=`<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px">${isVol?'Volumen por sesión':'Peso máx por sesión'}</div><div style="display:flex;flex-direction:column;gap:6px">${rows.map((h,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500;font-family:var(--mono)">${h.date}</div><div style="font-size:11px;color:var(--text3);margin-top:2px">${h.sets.filter(s=>s.peso&&s.reps).length} series · mejor: ${h.bestSet}</div></div><div style="font-size:16px;font-weight:500;font-family:var(--mono);color:${i===0?color:'var(--text2)'}">${isVol?h.volume:h.maxPeso}kg</div></div>`).join('')}</div>`;
+}
+
+function renderLineChart(data,key,label,color){
+  if(data.length<2){return data.length===1?`<div style="text-align:center;padding:16px;color:var(--text3);font-size:13px">Solo 1 sesión registrada. Seguí entrenando para ver el gráfico.</div>`:'';  }
+  const W=Math.min(400,window.innerWidth-72),H=130,padL=42,padB=24,padT=12,padR=10;
+  const chartW=W-padL-padR,chartH=H-padB-padT;
+  const values=data.map(d=>d[key]);
+  let minV=Math.min(...values),maxV=Math.max(...values);
+  if(minV===maxV){minV=Math.max(0,minV-10);maxV=maxV+10;}
+  const range=maxV-minV||1;
+  const xS=i=>padL+(i/(data.length-1))*chartW;
+  const yS=v=>padT+chartH-((v-minV)/range)*chartH;
+  let svg='';
+  for(let g=0;g<=3;g++){const v=minV+(range/3)*g,y=yS(v);svg+=`<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-width="1"/><text x="${padL-4}" y="${y+4}" text-anchor="end" font-size="9" fill="rgba(255,255,255,0.35)">${Math.round(v)}</text>`;}
+  const pts=data.map((d,i)=>`${xS(i)},${yS(d[key])}`).join(' ');
+  svg+=`<polygon points="${padL},${padT+chartH} ${pts} ${xS(data.length-1)},${padT+chartH}" fill="${color}" opacity="0.1"/>`;
+  svg+=`<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  data.forEach((d,i)=>{const x=xS(i),y=yS(d[key]),last=i===data.length-1;svg+=`<circle cx="${x}" cy="${y}" r="${last?5:3}" fill="${last?color:'var(--surface)'}" stroke="${color}" stroke-width="2"/><text x="${x}" y="${H-4}" text-anchor="middle" font-size="9" fill="${last?color:'rgba(255,255,255,0.35)'}">${d.date.slice(5)}</text>`;});
+  return`<div class="chart-box"><div class="chart-title" style="font-size:12px;margin-bottom:10px">${label} <span style="color:${color};font-family:var(--mono)">${data[data.length-1][key]}kg</span></div><div class="chart-svg-wrap"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${svg}</svg></div></div>`;
+}
 
 // ─── SEMANA ───────────────────────────────────────────────────────
 function renderSemana(){
