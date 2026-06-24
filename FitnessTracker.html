@@ -2021,7 +2021,7 @@ async function searchFoodWithGemini(query){
     if(!text){showToast("Gemini no respondió","err");return null;}
     const food=JSON.parse(text);
     if(!food.nombre||food.calorias_100g==null){showToast("Respuesta inválida de Gemini","err");return null;}
-    return {n:food.nombre,c:+food.calorias_100g,p:+food.proteinas_100g,ch:+food.carbohidratos_100g,g:+food.grasas_100g,cat:"🤖",src:"gemini"};
+    return {n:food.nombre,c:+food.calorias_100g||0,p:+food.proteinas_100g||0,ch:+food.carbohidratos_100g||0,g:+food.grasas_100g||0,cat:"🤖",src:"gemini"};
   } catch(e){showToast("Error al contactar Gemini","err");console.error(e);return null;}
 }
 
