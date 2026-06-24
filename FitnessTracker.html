@@ -1995,17 +1995,27 @@ function renderPerfil(){const p=getProfile();document.getElementById("p-peso").v
 function getGeminiKey(){return localStorage.getItem("geminiKey")||"";}
 function saveGeminiKey(){const k=document.getElementById("p-gemini-key").value.trim();if(!k){showToast("Ingresá una API Key","err");return;}localStorage.setItem("geminiKey",k);showToast("API Key guardada ✓","ok");}
 
+const GEMINI_MODELS=["gemini-2.5-flash","gemini-2.0-flash"];
+async function geminiPost(key,body){
+  for(const model of GEMINI_MODELS){
+    try{
+      const res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
+        method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify(body)
+      });
+      if(res.status===503||res.status===429){continue;}// reintenta con siguiente modelo
+      return res;
+    }catch(e){continue;}
+  }
+  return null;
+}
+
 async function searchFoodWithGemini(query){
   const key=getGeminiKey();
   if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return null;}
   const prompt=`Devuelve los valores nutricionales por 100g de: "${query}". Responde SOLO con JSON válido con estas claves exactas: nombre, calorias_100g, proteinas_100g, carbohidratos_100g, grasas_100g. Sin texto extra.`;
   try {
-    const res=await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","x-goog-api-key":key},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}})
-    });
-    if(!res.ok){showToast("Error de Gemini ("+res.status+")","err");return null;}
+    const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
+    if(!res||!res.ok){showToast("Error de Gemini ("+(res?.status||"sin conexión")+")","err");return null;}
     const data=await res.json();
     const text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if(!text){showToast("Gemini no respondió","err");return null;}
@@ -2042,18 +2052,11 @@ async function analyzePhotoWithGemini(base64, mimeType){
   const key = getGeminiKey();
   const prompt = `Analizá esta foto de comida. Estimá el plato, la porción y los valores nutricionales. Respondé SOLO con JSON válido con estas claves exactas: nombre_plato (string), porcion_gramos (número), calorias_100g (número), proteinas_100g (número), carbohidratos_100g (número), grasas_100g (número). Si no podés identificar comida, devolvé {"error": "no_food"}.`;
   try {
-    const res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",{
-      method:"POST",
-      headers:{"Content-Type":"application/json","x-goog-api-key":key},
-      body:JSON.stringify({
-        contents:[{parts:[
-          {inlineData:{mimeType, data:base64}},
-          {text:prompt}
-        ]}],
-        generationConfig:{responseMimeType:"application/json"}
-      })
+    const res = await geminiPost(key,{
+      contents:[{parts:[{inlineData:{mimeType,data:base64}},{text:prompt}]}],
+      generationConfig:{responseMimeType:"application/json"}
     });
-    if(!res.ok){ showToast("Error de Gemini ("+res.status+")","err"); return null; }
+    if(!res||!res.ok){ showToast("Error de Gemini ("+(res?.status||"sin conexión")+")","err"); return null; }
     const json = await res.json();
     const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
     if(!text){ showToast("Gemini no respondió","err"); return null; }
