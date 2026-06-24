@@ -2012,7 +2012,7 @@ async function geminiPost(key,body){
 async function searchFoodWithGemini(query){
   const key=getGeminiKey();
   if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return null;}
-  const prompt=`Devuelve los valores nutricionales por 100g de: "${query}". Responde SOLO con JSON válido con estas claves exactas: nombre, calorias_100g, proteinas_100g, carbohidratos_100g, grasas_100g. Sin texto extra.`;
+  const prompt=`Sos un nutricionista experto. Dame los valores nutricionales por 100g de: "${query}". Si no tenés datos exactos, estimá basándote en alimentos similares — NUNCA dejes un campo en null o vacío, siempre poné un número. Respondé SOLO con JSON válido con estas claves exactas (todos números, sin unidades): nombre (string con el nombre completo del alimento), calorias_100g, proteinas_100g, carbohidratos_100g, grasas_100g. Sin texto extra, sin markdown, solo el JSON.`;
   try {
     const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
     if(!res||!res.ok){showToast(res?.status===503||res?.status===429?"Demasiadas consultas, esperá unos segundos":"Error de Gemini ("+(res?.status||"sin conexión")+")","err");return null;}
