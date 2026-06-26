@@ -20,6 +20,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
 :root{--bg:#0e0e10;--surface:#18181c;--surface2:#222228;--surface3:#2c2c34;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.13);--text:#f0f0f0;--text2:#9090a0;--text3:#5a5a6a;--accent:#c8f564;--accent-dim:rgba(200,245,100,0.12);--accent-dim2:rgba(200,245,100,0.06);--red:#ff5e5e;--red-dim:rgba(255,94,94,0.12);--amber:#ffc947;--amber-dim:rgba(255,201,71,0.12);--blue:#64b5f6;--teal:#4dd0a0;--teal-dim:rgba(77,208,160,0.12);--purple:#b39ddb;--purple-dim:rgba(179,157,219,0.12);--r:10px;--r-sm:6px;--font:"DM Sans",sans-serif;--mono:"DM Mono",monospace}
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
@@ -310,10 +311,16 @@ select option{background:#18181c}
   <div class="divider"></div>
   <div class="sec-label" style="display:flex;align-items:center;justify-content:space-between;padding-right:18px">
     <span>Agregar comida</span>
-    <button onclick="openCamera()" style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:5px 10px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;font-family:var(--font)">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      Foto
-    </button>
+    <div style="display:flex;gap:6px">
+      <button onclick="openBarcodeScanner()" style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:5px 10px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;font-family:var(--font)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="3" height="16"/><rect x="6" y="4" width="1" height="16"/><rect x="9" y="4" width="2" height="16"/><rect x="13" y="4" width="1" height="16"/><rect x="16" y="4" width="3" height="16"/><rect x="21" y="4" width="2" height="16"/></svg>
+        Código
+      </button>
+      <button onclick="openCamera()" style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:5px 10px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;font-family:var(--font)">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        Foto
+      </button>
+    </div>
   </div>
   <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
   <div class="food-search-wrap" id="food-search-wrap">
@@ -354,6 +361,7 @@ select option{background:#18181c}
       <option value="1">Semana 1</option><option value="2">Semana 2</option>
       <option value="3">Semana 3</option><option value="4">Semana 4</option>
     </select>
+    <button class="btn" style="font-size:12px" onclick="openRoutineEditor()">⚙️ Rutina</button>
     <button class="btn" style="margin-left:auto;font-size:12px" onclick="showAddExModal()">+ Ejercicio</button>
   </div>
   <div class="day-tabs" id="day-tabs"></div>
@@ -659,6 +667,73 @@ select option{background:#18181c}
   </div>
 </div>
 
+<!-- BARCODE MODAL -->
+<div class="modal-overlay" id="barcode-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🔍 Escanear código</div>
+      <button class="modal-close" onclick="closeBarcodeModal()">×</button>
+    </div>
+    <div id="barcode-reader" style="width:100%;border-radius:var(--r-sm);overflow:hidden;background:#000;margin-bottom:12px;min-height:200px"></div>
+    <div id="barcode-status" style="text-align:center;font-size:13px;color:var(--text3);margin-bottom:10px">Apuntá la cámara al código de barras del producto</div>
+    <div id="barcode-loading" style="display:none;text-align:center;padding:12px 0">
+      <div style="font-size:13px;color:var(--text2)">Buscando producto...</div>
+    </div>
+    <button id="barcode-label-btn" style="display:none" class="btn wide" onclick="openLabelPhoto()">📷 Fotografiar etiqueta nutricional</button>
+    <input type="hidden" id="barcode-code-found" value="">
+    <input type="file" id="label-foto-input" accept="image/*" capture="environment" style="display:none" onchange="onLabelPhotoSelected(this)">
+  </div>
+</div>
+
+<!-- ROUTINE EDITOR MODAL -->
+<div class="modal-overlay" id="routine-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">⚙️ Mi rutina</div>
+      <button class="modal-close" onclick="closeRoutineModal()">×</button>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <button class="btn wide" onclick="openRoutineImport()" style="font-size:13px">📝 Importar con IA</button>
+      <button class="btn danger" onclick="resetRoutine()" style="font-size:12px;flex-shrink:0">Resetear</button>
+    </div>
+    <div class="mode-tabs" id="routine-day-tabs" style="margin-bottom:12px;overflow-x:auto;flex-wrap:nowrap"></div>
+    <div id="routine-ex-list" style="margin-bottom:12px"></div>
+    <button class="btn primary wide" onclick="addExToCurrentRoutineDay()">+ Agregar ejercicio a este día</button>
+  </div>
+</div>
+
+<!-- ROUTINE IMPORT MODAL -->
+<div class="modal-overlay" id="routine-import-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">📝 Importar rutina con IA</div>
+      <button class="modal-close" onclick="closeRoutineImport()">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Pegá el texto de tu rutina o sacá una foto. Gemini la interpreta — vas a poder revisar y corregir antes de guardar.</div>
+    <textarea id="routine-import-text" class="form-input" rows="7" placeholder="Ej:&#10;Lunes - Pecho: Press banco 4x8, Aperturas 3x12&#10;Martes - Espalda: Remo 4x8, Dominadas 3x10" style="resize:vertical;width:100%;margin-bottom:10px;font-size:13px"></textarea>
+    <button class="btn wide" onclick="document.getElementById('routine-photo-input').click()" style="margin-bottom:12px">📷 O subir foto de la rutina</button>
+    <input type="file" id="routine-photo-input" accept="image/*" capture="environment" style="display:none" onchange="onRoutinePhotoSelected(this)">
+    <div id="routine-photo-preview" style="display:none;font-size:12px;color:var(--teal);margin-bottom:10px">📷 Foto cargada</div>
+    <button class="btn primary wide" id="routine-import-btn" onclick="parseRoutineWithGemini()">Interpretar con Gemini</button>
+  </div>
+</div>
+
+<!-- ROUTINE PREVIEW MODAL -->
+<div class="modal-overlay" id="routine-preview-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">Revisar rutina importada</div>
+      <button class="modal-close" onclick="closeRoutinePreview()">×</button>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Gemini interpretó esta rutina. Revisá que esté correcta antes de guardar.</div>
+    <div id="routine-preview-content" style="max-height:320px;overflow-y:auto;margin-bottom:16px;display:flex;flex-direction:column;gap:10px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn wide" onclick="closeRoutinePreview()">Cancelar</button>
+      <button class="btn primary wide" onclick="confirmRoutineImport()">Guardar rutina</button>
+    </div>
+  </div>
+</div>
+
 <!-- PROGRESS MODAL -->
 <div class="modal-overlay" id="progress-modal">
   <div class="modal">
@@ -741,7 +816,7 @@ const firebaseConfig = {
   messagingSenderId: "143264606965",
   appId: "1:143264606965:web:7cf0032b6a521f8cd473bc"
 };
-const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter"];
+const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter","userRoutine"];
 let fbAuth = null, fbDb = null, fbUser = null;
 
 function initFirebase(){
@@ -1327,7 +1402,9 @@ function saveDayData(date,data){
 }
 function getTodayData(){return getDayData(selectedHoyDate)}
 function saveTodayData(data){saveDayData(selectedHoyDate,data)}
-function getRoutine(){const c=ls("customExercises",{});const r={};for(const d in ROUTINE_BASE){r[d]={...ROUTINE_BASE[d],exercises:[...ROUTINE_BASE[d].exercises,...(c[d]||[])]};}return r;}
+function getUserRoutine(){const s=ls("userRoutine",null);return s||JSON.parse(JSON.stringify(ROUTINE_BASE));}
+function saveUserRoutine(r){ss("userRoutine",r);syncToCloud("userRoutine",r);}
+function getRoutine(){const base=getUserRoutine();const c=ls("customExercises",{});const r={};for(const d in base){r[d]={...base[d],exercises:[...base[d].exercises,...(c[d]||[])]};}return r;}
 // CUSTOM FOODS (user despensa)
 function getCustomFoods(){return ls("customFoods",[])}
 function saveCustomFoods(arr){ss("customFoods",arr);syncToCloud("customFoods",arr);}
@@ -1838,15 +1915,19 @@ function saveActivity(){const td=getTodayData();td.steps=+document.getElementByI
 
 // ─── GYM ──────────────────────────────────────────────────────────
 function isDS(schema){ return /DS/i.test(schema||""); }
+// DS vive en la serie individual, no en el ejercicio
+function setIsDS(s){ return s && (s.ds===true || (s.ds!==false && !!s.drops)); }
 
 function renderNormalSetRow(s,si,ei,ex){
-  return `<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`;
+  const t=ex.type||"isolation";
+  return `<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:11px;color:var(--text3)">reps</span><button onclick="toggleSetDS(${ei},${si})" title="Marcar como dropset" style="flex-shrink:0;background:none;border:1px solid var(--border2);border-radius:4px;padding:2px 6px;color:var(--text3);font-size:10px;cursor:pointer;font-family:var(--mono);line-height:1.4">DS</button></div>`;
 }
 
 function renderDSSetBlock(s,si,ei,ex){
   const drops=s.drops||[{peso:"",reps:""},{peso:"",reps:""}];
-  const dropRow=(peso,reps,di)=>`<div class="set-row" style="gap:6px;margin-bottom:${di<2?4:0}px"><span style="font-size:10px;color:var(--accent);font-family:var(--mono);min-width:22px;flex-shrink:0">D${di+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${peso}" id="ex${ei}-s${si}-d${di}-p" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${reps}" id="ex${ei}-s${si}-d${di}-r" oninput="liveExKcal(${ei},${ex.sets},'${ex.type||"isolation"}')"><span style="font-size:11px;color:var(--text3)">reps</span></div>`;
-  return `<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px"><div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Serie ${si+1} · Dropset</div>${dropRow(s.peso||"",s.reps||"",0)}${dropRow(drops[0]?.peso||"",drops[0]?.reps||"",1)}${dropRow(drops[1]?.peso||"",drops[1]?.reps||"",2)}</div>`;
+  const t=ex.type||"isolation";
+  const dr=(peso,reps,di)=>`<div class="set-row" style="gap:6px;margin-bottom:${di<2?4:0}px"><span style="font-size:10px;color:var(--accent);font-family:var(--mono);min-width:22px;flex-shrink:0">D${di+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${peso}" id="ex${ei}-s${si}-d${di}-p" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${reps}" id="ex${ei}-s${si}-d${di}-r" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:11px;color:var(--text3)">reps</span>${di===0?`<button onclick="toggleSetDS(${ei},${si})" title="Quitar dropset" style="flex-shrink:0;background:var(--accent);border:1px solid var(--accent);border-radius:4px;padding:2px 6px;color:#0e0e10;font-size:10px;cursor:pointer;font-family:var(--mono);line-height:1.4">DS</button>`:`<span style="width:28px;flex-shrink:0"></span>`}</div>`;
+  return `<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px"><div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Serie ${si+1} · Dropset</div>${dr(s.peso||"",s.reps||"",0)}${dr(drops[0]?.peso||"",drops[0]?.reps||"",1)}${dr(drops[1]?.peso||"",drops[1]?.reps||"",2)}</div>`;
 }
 
 function renderGym(){const di=document.getElementById("gym-date");if(!di.value)di.value=TODAY;const routine=getRoutine();document.getElementById("day-tabs").innerHTML=Object.entries(routine).map(([d,r])=>`<button class="day-tab${+d===currentGymDay?" active":""}" onclick="selectGymDay(${d})" style="${+d===currentGymDay?"background:"+r.color+";border-color:"+r.color+";color:#0e0e10":""}">${r.short}</button>`).join("");renderGymEx();}
@@ -1855,34 +1936,31 @@ function renderGymEx(){
   const date=document.getElementById("gym-date")?.value||TODAY,routine=getRoutine(),day=routine[currentGymDay];if(!day)return;
   const allDays=getDays(),saved=(allDays[date]?.gym||{})[currentGymDay]||{},p=getProfile();
   document.getElementById("gym-ex-list").innerHTML=day.exercises.map((ex,ei)=>{
-    const dsEx=isDS(ex.schema);
-    const defSet=()=>dsEx?{peso:"",reps:"",drops:[{peso:"",reps:""},{peso:"",reps:""}]}:{peso:"",reps:""};
-    const sets=saved[ei]||Array(ex.sets).fill(null).map(defSet);
+    const sets=saved[ei]||Array(ex.sets).fill(null).map(()=>({peso:"",reps:"",ds:false}));
     const prev=getPrevBest(currentGymDay,ei,date),exKcal=exerciseKcal(ex,sets,p.peso);
-    const isCustom=ei>=ROUTINE_BASE[currentGymDay].exercises.length;
-    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>dsEx?renderDSSetBlock(s,si,ei,ex):renderNormalSetRow(s,si,ei,ex)).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-ROUTINE_BASE[currentGymDay].exercises.length})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
+    const baseCount=getUserRoutine()[currentGymDay]?.exercises?.length||0;
+    const isCustom=ei>=baseCount;
+    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>setIsDS(s)?renderDSSetBlock(s,si,ei,ex):renderNormalSetRow(s,si,ei,ex)).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-baseCount})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
   }).join("")+`<div style="padding:0 18px;margin-bottom:16px"><button class="btn primary wide" onclick="saveAllSets(${day.exercises.length},'${date}')">Guardar toda la sesión</button></div>`;
 }
 function liveExKcal(ei,numSets,type){
-  const p=getProfile(),ex=getRoutine()[currentGymDay]?.exercises[ei],dsEx=isDS(ex?.schema||"");
-  const allSets=[];
+  const p=getProfile(),met=GYM_METS[type]||3.5,allSets=[];
   for(let si=0;si<numSets;si++){
-    if(dsEx){for(let di=0;di<3;di++){const pw=document.getElementById(`ex${ei}-s${si}-d${di}-p`),rw=document.getElementById(`ex${ei}-s${si}-d${di}-r`);if(pw&&rw)allSets.push({peso:pw.value||0,reps:rw.value||0});}}
-    else{const pw=document.getElementById(`ex${ei}-s${si}-p`),rw=document.getElementById(`ex${ei}-s${si}-r`);allSets.push({peso:pw?.value||0,reps:rw?.value||0});}
+    if(document.getElementById(`ex${ei}-s${si}-d0-p`)){
+      for(let di=0;di<3;di++){const pw=document.getElementById(`ex${ei}-s${si}-d${di}-p`),rw=document.getElementById(`ex${ei}-s${si}-d${di}-r`);if(pw&&rw)allSets.push({peso:pw.value||0,reps:rw.value||0});}
+    }else{const pw=document.getElementById(`ex${ei}-s${si}-p`),rw=document.getElementById(`ex${ei}-s${si}-r`);allSets.push({peso:pw?.value||0,reps:rw?.value||0});}
   }
-  const met=GYM_METS[type]||3.5;let t=0;
-  for(const s of allSets){const r=+s.reps||0;if(!r)continue;t+=met*p.peso*((r*3/60+0.75)/60);}
+  let t=0;for(const s of allSets){const r=+s.reps||0;if(!r)continue;t+=met*p.peso*((r*3/60+0.75)/60);}
   const el=document.getElementById("exkcal-"+ei);if(el){el.textContent="≈ "+Math.round(t)+" kcal quemadas";el.style.display=t>0?"block":"none";}
 }
 function getPrevBest(dayN,exIdx,currentDate){const allDays=getDays();for(const d of Object.keys(allDays).filter(d=>d<currentDate).sort().reverse()){const g=allDays[d]?.gym;if(g&&g[dayN]&&g[dayN][exIdx]){const sets=(g[dayN][exIdx]||[]).filter(s=>s.peso&&s.reps);if(sets.length){const best=sets.reduce((a,s)=>(+s.peso)>(+a.peso)?s:a,sets[0]);return best.peso+"kg × "+best.reps+" reps";}}}return null;}
 function saveExSets(ei,numSets,date){
-  const ex=getRoutine()[currentGymDay]?.exercises[ei],dsEx=isDS(ex?.schema||"");
   const sets=[];
   for(let si=0;si<numSets;si++){
-    if(dsEx){
+    if(document.getElementById(`ex${ei}-s${si}-d0-p`)){
       const g=di=>({peso:document.getElementById(`ex${ei}-s${si}-d${di}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${si}-d${di}-r`)?.value||""});
-      const d0=g(0);sets.push({peso:d0.peso,reps:d0.reps,drops:[g(1),g(2)]});
-    }else{sets.push({peso:document.getElementById(`ex${ei}-s${si}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${si}-r`)?.value||""});}
+      const d0=g(0);sets.push({peso:d0.peso,reps:d0.reps,ds:true,drops:[g(1),g(2)]});
+    }else{sets.push({peso:document.getElementById(`ex${ei}-s${si}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${si}-r`)?.value||"",ds:false});}
   }
   const allDays=getDays();if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90};if(!allDays[date].gym)allDays[date].gym={};if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};allDays[date].gym[currentGymDay][ei]=sets;ss("days",allDays);syncToCloud("days",allDays);const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
 }
@@ -1947,7 +2025,7 @@ function renderProgress(){
   const byWeek={};progHistory.forEach(h=>{const w=isoWeek(h.date);if(!byWeek[w])byWeek[w]={vol:0,maxPeso:0};byWeek[w].vol+=h.volume;byWeek[w].maxPeso=Math.max(byWeek[w].maxPeso,h.maxPeso);});
   const weeks=Object.keys(byWeek).sort();const curW=weeks[weeks.length-1],prevW=weeks[weeks.length-2];
   let weekRow='';
-  if(curW&&prevW){const cv=isVol?byWeek[curW].vol:byWeek[curW].maxPeso,pv=isVol?byWeek[prevW].vol:byWeek[prevW].maxPeso;const diff=cv-pv,pct=pv?Math.round(Math.abs(diff)/pv*100):100;const arrow=diff>0?'↑':diff<0?'↓':'→';const ac=diff>0?'var(--green)':diff<0?'var(--red)':'var(--text3)';weekRow=`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:12px;color:var(--text3)">Esta semana vs anterior</div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-family:var(--mono);color:var(--text2)">${pv}→${cv}kg</span><span style="font-size:15px;font-weight:700;color:${ac}">${arrow}${pct}%</span></div></div>`;}
+  if(curW&&prevW){const cv=isVol?byWeek[curW].vol:byWeek[curW].maxPeso,pv=isVol?byWeek[prevW].vol:byWeek[prevW].maxPeso;const diff=cv-pv,pct=pv?Math.round(Math.abs(diff)/pv*100):100;const arrow=diff>0?'↑':diff<0?'↓':'→';const ac=diff>0?'var(--teal)':diff<0?'var(--red)':'var(--text3)';weekRow=`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center"><div style="font-size:12px;color:var(--text3)">Esta semana vs anterior</div><div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-family:var(--mono);color:var(--text2)">${pv}→${cv}kg</span><span style="font-size:15px;font-weight:700;color:${ac}">${arrow}${pct}%</span></div></div>`;}
   else if(curW&&!prevW){weekRow=`<div style="padding:6px 0;font-size:12px;color:var(--text3)">Solo 1 semana con datos — entrenrá la semana que viene para ver la comparativa.</div>`;}
 
   const rows=[...progHistory].reverse().slice(0,5);
@@ -2436,6 +2514,189 @@ renderHoy();
 initFirebase();
 
 // Register Service Worker for PWA offline support
+// ─── DS POR SERIE ─────────────────────────────────────────────────
+function toggleSetDS(ei,si){
+  const date=document.getElementById("gym-date")?.value||TODAY;
+  const ex=getRoutine()[currentGymDay]?.exercises[ei];if(!ex)return;
+  // Leer valores actuales del DOM
+  const sets=[];
+  for(let s=0;s<ex.sets;s++){
+    if(document.getElementById(`ex${ei}-s${s}-d0-p`)){
+      const g=di=>({peso:document.getElementById(`ex${ei}-s${s}-d${di}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${s}-d${di}-r`)?.value||""});
+      const d0=g(0);sets.push({peso:d0.peso,reps:d0.reps,ds:true,drops:[g(1),g(2)]});
+    }else{sets.push({peso:document.getElementById(`ex${ei}-s${s}-p`)?.value||"",reps:document.getElementById(`ex${ei}-s${s}-r`)?.value||"",ds:false});}
+  }
+  const cur=sets[si]||{peso:"",reps:"",ds:false};
+  sets[si]=cur.ds?{peso:cur.peso,reps:cur.reps,ds:false}:{peso:cur.peso,reps:cur.reps,ds:true,drops:[{peso:"",reps:""},{peso:"",reps:""}]};
+  const allDays=getDays();
+  if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90};
+  if(!allDays[date].gym)allDays[date].gym={};
+  if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};
+  allDays[date].gym[currentGymDay][ei]=sets;
+  ss("days",allDays);
+  renderGymEx();
+}
+
+// ─── CÓDIGO DE BARRAS ─────────────────────────────────────────────
+let barcodeScanner=null;
+function openBarcodeScanner(){
+  document.getElementById("barcode-modal").classList.add("show");
+  document.getElementById("barcode-status").textContent="Apuntá la cámara al código de barras del producto";
+  document.getElementById("barcode-loading").style.display="none";
+  document.getElementById("barcode-label-btn").style.display="none";
+  document.getElementById("barcode-code-found").value="";
+  if(!window.Html5Qrcode){showToast("Librería de escaneo no disponible","err");return;}
+  if(!barcodeScanner)barcodeScanner=new Html5Qrcode("barcode-reader");
+  const fmts=[Html5QrcodeSupportedFormats.EAN_13,Html5QrcodeSupportedFormats.UPC_A,Html5QrcodeSupportedFormats.UPC_E,Html5QrcodeSupportedFormats.EAN_8,Html5QrcodeSupportedFormats.CODE_128];
+  barcodeScanner.start({facingMode:"environment"},{fps:10,qrbox:{width:260,height:120},formatsToSupport:fmts},onBarcodeDetected,()=>{}).catch(()=>{document.getElementById("barcode-status").textContent="No se pudo acceder a la cámara. Permití el acceso en Safari → Configuración.";});
+}
+function closeBarcodeModal(){
+  if(barcodeScanner&&barcodeScanner.isScanning)barcodeScanner.stop().catch(()=>{});
+  document.getElementById("barcode-modal").classList.remove("show");
+}
+async function onBarcodeDetected(code){
+  if(barcodeScanner&&barcodeScanner.isScanning)await barcodeScanner.stop().catch(()=>{});
+  document.getElementById("barcode-status").textContent="Código: "+code;
+  document.getElementById("barcode-loading").style.display="block";
+  try{
+    const res=await fetch(`https://world.openfoodfacts.org/api/v2/product/${code}.json?fields=product_name,nutriments`);
+    const data=await res.json();
+    document.getElementById("barcode-loading").style.display="none";
+    if(data.status===1&&data.product){
+      const pr=data.product,nm=pr.nutriments||{};
+      const food={
+        n:pr.product_name||"Producto "+code,
+        c:+(nm["energy-kcal_100g"]||nm["energy-kcal"]||Math.round((+(nm["energy_100g"]||0))/4.184))||0,
+        p:+(nm["proteins_100g"]||0)||0,
+        ch:+(nm["carbohydrates_100g"]||0)||0,
+        g:+(nm["fat_100g"]||0)||0,
+        cat:"🔍",src:"openfoodfacts"
+      };
+      closeBarcodeModal();
+      selectFood(food);
+    }else{
+      document.getElementById("barcode-status").textContent="Producto no encontrado en Open Food Facts. Podés fotografiar la etiqueta nutricional.";
+      document.getElementById("barcode-code-found").value=code;
+      document.getElementById("barcode-label-btn").style.display="block";
+    }
+  }catch(e){
+    document.getElementById("barcode-loading").style.display="none";
+    document.getElementById("barcode-status").textContent="Error al buscar el producto. Intentá de nuevo o fotografiá la etiqueta.";
+    document.getElementById("barcode-label-btn").style.display="block";
+  }
+}
+function openLabelPhoto(){document.getElementById("label-foto-input").value="";document.getElementById("label-foto-input").click();}
+async function onLabelPhotoSelected(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  if(!getGeminiKey()){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  closeBarcodeModal();
+  const productCode=document.getElementById("barcode-code-found").value;
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    const b64=e.target.result.split(",")[1],mime=file.type||"image/jpeg";
+    showToast("Analizando etiqueta...","ok");
+    const prompt=`Analizá esta foto de una etiqueta nutricional impresa en un envase. Extraé los valores POR 100g (si están por porción, convertí matemáticamente). Respondé SOLO con JSON: nombre_producto (string), calorias_100g, proteinas_100g, carbohidratos_100g, grasas_100g. Todos números. Sin texto extra.`;
+    const res=await geminiPost(getGeminiKey(),{contents:[{parts:[{inlineData:{mimeType:mime,data:b64}},{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
+    if(!res||!res.ok){showToast("Error al analizar la etiqueta","err");return;}
+    const json=await res.json();
+    const text=json?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!text){showToast("Gemini no respondió","err");return;}
+    try{
+      const d=JSON.parse(text);
+      selectFood({n:d.nombre_producto||"Producto "+productCode,c:+d.calorias_100g||0,p:+d.proteinas_100g||0,ch:+d.carbohidratos_100g||0,g:+d.grasas_100g||0,cat:"📷",src:"label"});
+    }catch{showToast("No se pudo interpretar la etiqueta","err");}
+  };
+  reader.readAsDataURL(file);
+}
+
+// ─── EDITOR DE RUTINA ─────────────────────────────────────────────
+let currentRoutineEditorDay=1,pendingRoutineImport=null,routineImportB64=null,routineImportMime=null;
+function openRoutineEditor(){
+  currentRoutineEditorDay=currentGymDay;
+  renderRoutineEditor();
+  document.getElementById("routine-modal").classList.add("show");
+}
+function closeRoutineModal(){document.getElementById("routine-modal").classList.remove("show");}
+function renderRoutineEditor(){
+  const r=getUserRoutine();
+  const tabs=Object.entries(r).map(([d,day])=>`<button class="mode-tab${+d===currentRoutineEditorDay?" active":""}" onclick="currentRoutineEditorDay=${d};renderRoutineEditor()">${day.short}</button>`).join("");
+  document.getElementById("routine-day-tabs").innerHTML=tabs;
+  const day=r[currentRoutineEditorDay];
+  if(!day){document.getElementById("routine-ex-list").innerHTML="";return;}
+  document.getElementById("routine-ex-list").innerHTML=day.exercises.length?day.exercises.map((ex,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500">${ex.name}</div><div style="font-size:11px;color:var(--text3)">${ex.muscle} · ${ex.schema}</div></div><button class="btn danger" style="font-size:12px;padding:4px 10px" onclick="deleteBaseExercise(${currentRoutineEditorDay},${i})">✕</button></div>`).join(""):`<div style="padding:16px;text-align:center;font-size:13px;color:var(--text3)">No hay ejercicios en este día.</div>`;
+}
+function deleteBaseExercise(dayN,ei){
+  if(!confirm("¿Eliminar este ejercicio de tu rutina base?"))return;
+  const r=getUserRoutine();
+  if(!r[dayN])return;
+  r[dayN].exercises.splice(ei,1);
+  saveUserRoutine(r);
+  renderRoutineEditor();
+  renderGym();
+  showToast("Ejercicio eliminado","ok");
+}
+function addExToCurrentRoutineDay(){
+  closeRoutineModal();
+  currentGymDay=currentRoutineEditorDay;
+  showAddExModal();
+}
+function resetRoutine(){
+  if(!confirm("¿Resetear la rutina a los valores por defecto? Tu historial no se borra."))return;
+  localStorage.removeItem("userRoutine");
+  syncToCloud("userRoutine",null);
+  closeRoutineModal();
+  renderGym();
+  showToast("Rutina reseteada","ok");
+}
+function openRoutineImport(){
+  document.getElementById("routine-import-text").value="";
+  document.getElementById("routine-photo-preview").style.display="none";
+  routineImportB64=null;routineImportMime=null;
+  document.getElementById("routine-import-modal").classList.add("show");
+}
+function closeRoutineImport(){document.getElementById("routine-import-modal").classList.remove("show");}
+function onRoutinePhotoSelected(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=function(e){routineImportB64=e.target.result.split(",")[1];routineImportMime=file.type||"image/jpeg";document.getElementById("routine-photo-preview").style.display="block";};
+  reader.readAsDataURL(file);
+}
+async function parseRoutineWithGemini(){
+  if(!getGeminiKey()){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  const text=document.getElementById("routine-import-text").value.trim();
+  if(!text&&!routineImportB64){showToast("Pegá texto o subí una foto de la rutina","err");return;}
+  const btn=document.getElementById("routine-import-btn");
+  btn.disabled=true;btn.textContent="Interpretando...";
+  const prompt=`Parsea esta rutina de gym y devuelve un JSON con esta estructura exacta: {"1":{"label":"Día 1 - Descripción","short":"Día 1","color":"#ff5e5e","exercises":[{"name":"Nombre ejercicio","muscle":"Grupo muscular","schema":"3x10-12","sets":3,"type":"compound"}]},...}. Los días van del 1 al N según lo que veas. Tipos: compound, isolation, bodyweight. Colores sugeridos: #ff5e5e #ffc947 #c8f564 #64b5f6 #b39ddb. SOLO el JSON, sin texto extra.`;
+  const parts=routineImportB64?[{inlineData:{mimeType:routineImportMime,data:routineImportB64}},{text:prompt+"\n\nTexto adicional: "+(text||"(solo foto)")}]:[{text:prompt+"\n\nRutina:\n"+text}];
+  const res=await geminiPost(getGeminiKey(),{contents:[{parts}],generationConfig:{responseMimeType:"application/json"}});
+  btn.disabled=false;btn.textContent="Interpretar con Gemini";
+  if(!res||!res.ok){showToast("Error de Gemini","err");return;}
+  const json=await res.json();
+  const raw=json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if(!raw){showToast("Gemini no respondió","err");return;}
+  try{
+    pendingRoutineImport=JSON.parse(raw);
+    closeRoutineImport();
+    showRoutinePreview();
+  }catch{showToast("No se pudo interpretar la rutina — revisá el texto","err");}
+}
+function showRoutinePreview(){
+  const r=pendingRoutineImport;if(!r)return;
+  document.getElementById("routine-preview-content").innerHTML=Object.entries(r).map(([d,day])=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:12px"><div style="font-weight:500;margin-bottom:8px;color:${day.color||"var(--accent)"}">${day.label||"Día "+d}</div>${(day.exercises||[]).map(ex=>`<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${ex.name}</span> <span style="color:var(--text3);font-size:11px">${ex.muscle} · ${ex.schema} · ${ex.sets} series</span></div>`).join("")||"<div style='font-size:12px;color:var(--text3)'>Sin ejercicios</div>"}</div>`).join("");
+  document.getElementById("routine-preview-modal").classList.add("show");
+}
+function closeRoutinePreview(){document.getElementById("routine-preview-modal").classList.remove("show");}
+function confirmRoutineImport(){
+  if(!pendingRoutineImport)return;
+  saveUserRoutine(pendingRoutineImport);
+  pendingRoutineImport=null;
+  closeRoutinePreview();
+  closeRoutineModal();
+  renderGym();
+  showToast("Rutina guardada","ok");
+}
+
 if("serviceWorker" in navigator){
   window.addEventListener("load",function(){
     navigator.serviceWorker.register("sw.js").then(function(reg){
