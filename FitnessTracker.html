@@ -1498,11 +1498,21 @@ let currentPortionUnit = "g";
 function openPortionModal(item){
   currentPortionUnit = "g";
   document.getElementById("pm-title").textContent=item.cat+" "+item.n;
-  
+
+  // Determine which units to show for this food
+  let allowed = null;
+  if(item._allowed) {
+    allowed = item._allowed; // Gemini-sourced food with smart portions
+  } else {
+    const defR = getDefaultUnit(item.n);
+    allowed = defR.allowed; // rule-matched food
+  }
+  const visibleUnits = allowed ? PORTION_UNITS.filter(u=>allowed.includes(u.id)) : PORTION_UNITS;
+
   // Build unit buttons
   const unitBtns = document.getElementById("pm-unit-btns");
-  unitBtns.innerHTML = PORTION_UNITS.map(u=>`
-    <button class="preset-btn ${u.id==="g"?"active-unit":""}" 
+  unitBtns.innerHTML = visibleUnits.map(u=>`
+    <button class="preset-btn ${u.id==="g"?"active-unit":""}"
       id="unit-btn-${u.id}"
       onclick="selectPortionUnit('${u.id}')"
       style="${u.id==="g"?"border-color:var(--accent);color:var(--accent)":""}"
@@ -1517,9 +1527,15 @@ function openPortionModal(item){
   if(normalizeStr(item.n).includes("humita"))presets.unshift({l:"1 u.",g:130});
   document.getElementById("pm-presets").innerHTML=presets.map(pr=>`<button class="preset-btn" onclick="applyPreset(${pr.g})">${pr.l}</button>`).join("");
   // Auto-select best unit for this food
-  const defUnit = getDefaultUnit(item.n);
-  currentPortionUnit = defUnit.unit;
-  if(defUnit.gpU) item._gpU = defUnit.gpU; // store per-unit grams
+  // Gemini foods carry _gu/_gpU; otherwise fall back to keyword rules
+  if(item._gu && item._gu !== "g") {
+    currentPortionUnit = item._gu;
+    if(item._gpU) item._gpU = item._gpU; // already set
+  } else {
+    const defUnit = getDefaultUnit(item.n);
+    currentPortionUnit = defUnit.unit;
+    if(defUnit.gpU) item._gpU = defUnit.gpU;
+  }
 
   // Set initial qty
   document.getElementById("pm-grams").value = currentPortionUnit==="g" ? 100 : 1;
@@ -2090,7 +2106,7 @@ async function geminiPost(key,body){
 async function searchFoodWithGemini(query){
   const key=getGeminiKey();
   if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return null;}
-  const prompt=`Sos un nutricionista experto. Dame los valores nutricionales por 100g de: "${query}". Si no tenés datos exactos, estimá basándote en alimentos similares — NUNCA dejes un campo en null o vacío, siempre poné un número. Respondé SOLO con JSON válido con estas claves exactas (todos números, sin unidades): nombre (string con el nombre completo del alimento), calorias_100g, proteinas_100g, carbohidratos_100g, grasas_100g. Sin texto extra, sin markdown, solo el JSON.`;
+  const prompt=`Sos un nutricionista experto. Dame los valores nutricionales por 100g de: "${query}". Si no tenés datos exactos, estimá basándote en alimentos similares — NUNCA dejes un campo en null o vacío, siempre poné un número. Respondé SOLO con JSON válido con estas claves exactas: nombre (string), calorias_100g (número), proteinas_100g (número), carbohidratos_100g (número), grasas_100g (número), unidad_tipica (string — la unidad más natural para comer este alimento, elegí UNA de: g,unidad,porcion,plato,medio,feta,rodaja,rebanada,lata,lata_s,taza,taza_s,vaso,copa,cda,cdita), porcion_gramos (número — cuántos gramos pesa 1 unidad/porción/feta típica, o null si se mide en gramos directamente). Sin texto extra, sin markdown, solo el JSON.`;
   try {
     const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
     if(!res||!res.ok){showToast(res?.status===503||res?.status===429?"Demasiadas consultas, esperá unos segundos":"Error de Gemini ("+(res?.status||"sin conexión")+")","err");return null;}
@@ -2099,7 +2115,9 @@ async function searchFoodWithGemini(query){
     if(!text){showToast("Gemini no respondió","err");return null;}
     const food=JSON.parse(text);
     if(!food.nombre||food.calorias_100g==null){showToast("Respuesta inválida de Gemini","err");return null;}
-    return {n:food.nombre,c:+food.calorias_100g||0,p:+food.proteinas_100g||0,ch:+food.carbohidratos_100g||0,g:+food.grasas_100g||0,cat:"🤖",src:"gemini"};
+    const gu=food.unidad_tipica||"g";
+    const gpU=food.porcion_gramos?+food.porcion_gramos:null;
+    return {n:food.nombre,c:+food.calorias_100g||0,p:+food.proteinas_100g||0,ch:+food.carbohidratos_100g||0,g:+food.grasas_100g||0,cat:"🤖",src:"gemini",_gu:gu,_gpU:gpU,_allowed:_GEMINI_UNIT_ALLOWED[gu]||null};
   } catch(e){showToast("Error al contactar Gemini","err");console.error(e);return null;}
 }
 
@@ -2230,61 +2248,82 @@ const PORTION_UNITS = [
 // Default unit and per-unit weight for specific foods
 // Each entry: { keywords, unit, gramsPerUnit }
 const FOOD_UNIT_RULES = [
-  // Fast food burgers/sandwiches — per unit, weight = full item
+  // Fast food burgers/sandwiches — por unidad
   {kw:["big mac","mcpollo","whopper","mcnifica","cuarto de libra","chicken crispy","zinger","long chicken",
         "sandwich de pollo","wrap","lomito","choripan","pancho","hot dog","tostado","mcwrap","mcnuggets"],
-   unit:"unidad", gpU:null}, // gpU null = use item's c/p/ch/g as-is per 100g, qty=1
-  // Pizza slices
-  {kw:["pizza","fugazza","fainá","faina"],            unit:"porcion", gpU:120},
-  // Empanadas, tamales, humitas
-  {kw:["empanada","tamale","tamales","humita"],        unit:"unidad",  gpU:100},
-  // Nuggets / presas
-  {kw:["nuggets","presa de pollo","popcorn chicken"],  unit:"unidad",  gpU:45},
-  // Helado bochas
-  {kw:["bocha","helado artesanal"],                    unit:"unidad",  gpU:80},
-  // Medialunas, facturas, muffins, cookies, brownie
+   unit:"unidad", gpU:null, allowed:["unidad","medio","porcion","g"]},
+  // Pizza — por porción/tajada
+  {kw:["pizza","fugazza","fainá","faina"],            unit:"porcion", gpU:120,  allowed:["porcion","medio","plato","g"]},
+  // Empanadas, tamales, humitas — por unidad discreta
+  {kw:["empanada","tamale","tamales","humita"],        unit:"unidad",  gpU:100,  allowed:["unidad","g"]},
+  // Nuggets / presas — por unidad
+  {kw:["nuggets","presa de pollo","popcorn chicken"],  unit:"unidad",  gpU:45,   allowed:["unidad","g"]},
+  // Helado bochas — por bocha/unidad
+  {kw:["bocha","helado artesanal"],                    unit:"unidad",  gpU:80,   allowed:["unidad","g"]},
+  // Helado pote (cuarto, medio, litro)
+  {kw:["helado"],                                      unit:"porcion", gpU:100,  allowed:["porcion","medio","g"]},
+  // Medialunas, facturas, muffins, cookies, brownie — unidad chica
   {kw:["medialuna","facturas","muffin","cookie","brownie","alfajor","biscuit"],
-                                                       unit:"unidad",  gpU:60},
+                                                       unit:"unidad",  gpU:60,   allowed:["unidad","g"]},
   // Huevos
-  {kw:["huevo"],                                       unit:"unidad",  gpU:55},
-  // Fiambres / fetas
+  {kw:["huevo"],                                       unit:"unidad",  gpU:55,   allowed:["unidad","g"]},
+  // Fiambres / fetas finas
   {kw:["jamon","salame","mortadela","paleta","fiambre","salchicha"],
-                                                       unit:"feta",    gpU:15},
-  // Queso fetas
+                                                       unit:"feta",    gpU:15,   allowed:["feta","rodaja","g"]},
+  // Queso en fetas
   {kw:["queso tybo","queso cremoso","queso fresco","queso mozz","queso parm","queso roq","queso brie"],
-                                                       unit:"feta",    gpU:20},
+                                                       unit:"feta",    gpU:20,   allowed:["feta","rodaja","g"]},
   // Pan lactal, tostadas, pan integral
   {kw:["pan lactal","tostada","pan integral","pan pita","pan brioche","pan de campo"],
-                                                       unit:"rebanada",gpU:30},
-  // Banana, manzana, pera etc — por unidad
+                                                       unit:"rebanada",gpU:30,   allowed:["rebanada","g"]},
+  // Frutas enteras — por unidad
   {kw:["banana","manzana","pera","naranja","mandarina","kiwi","durazno","sandia","uva"],
-                                                       unit:"unidad",  gpU:120},
+                                                       unit:"unidad",  gpU:120,  allowed:["unidad","medio","g"]},
   // Lata atún/sardinas
-  {kw:["lata","atun","sardina"],                       unit:"lata",    gpU:180},
+  {kw:["lata","atun","sardina"],                       unit:"lata",    gpU:180,  allowed:["lata","lata_s","g"]},
   // Café, mate — por taza
-  {kw:["cafe","mate","te ","infusion","chai"],          unit:"taza",    gpU:240},
+  {kw:["cafe","mate","te ","infusion","chai"],          unit:"taza",    gpU:240,  allowed:["taza","taza_s","vaso","g"]},
   // Jugos, leche, yogur líquido — por vaso
   {kw:["jugo","leche","yogur","smoothie","licuado","api"],
-                                                       unit:"vaso",    gpU:250},
-  // Vino, cerveza, copa
-  {kw:["vino","copa"],                                 unit:"copa",    gpU:150},
-  {kw:["cerveza"],                                     unit:"vaso",    gpU:330},
-  // Aceites, salsas — por cuchara
+                                                       unit:"vaso",    gpU:250,  allowed:["vaso","taza","taza_s","g"]},
+  // Vino — por copa
+  {kw:["vino","copa"],                                 unit:"copa",    gpU:150,  allowed:["copa","vaso","g"]},
+  // Cerveza — por vaso/pinta
+  {kw:["cerveza"],                                     unit:"vaso",    gpU:330,  allowed:["vaso","copa","g"]},
+  // Aceites, salsas, aderezos — por cuchara
   {kw:["aceite","ketchup","mostaza","mayonesa","salsa de soja","vinagre","miel","dulce","arrope","mermelada"],
-                                                       unit:"cda",     gpU:15},
-  // Papas fritas chicas/medianas/grandes (fast food) — por porción
+                                                       unit:"cda",     gpU:15,   allowed:["cda","cdita","g"]},
+  // Papas fritas fast food — por porción
   {kw:["papas fritas chicas","papas fritas medianas","papas fritas grandes","papas medianas"],
-                                                       unit:"porcion", gpU:null},
+                                                       unit:"porcion", gpU:null, allowed:["porcion","g"]},
 ];
+
+// Map from Gemini unit name → allowed unit IDs for portal
+const _GEMINI_UNIT_ALLOWED = {
+  "unidad":   ["unidad","medio","porcion","g"],
+  "porcion":  ["porcion","medio","plato","g"],
+  "plato":    ["plato","porcion","medio","g"],
+  "feta":     ["feta","rodaja","g"],
+  "rodaja":   ["rodaja","feta","g"],
+  "rebanada": ["rebanada","g"],
+  "lata":     ["lata","lata_s","g"],
+  "lata_s":   ["lata_s","lata","g"],
+  "taza":     ["taza","taza_s","vaso","g"],
+  "taza_s":   ["taza_s","taza","g"],
+  "vaso":     ["vaso","taza","g"],
+  "copa":     ["copa","vaso","g"],
+  "cda":      ["cda","cdita","g"],
+  "cdita":    ["cdita","cda","g"],
+};
 
 function getDefaultUnit(itemName){
   const nn = normalizeStr(itemName);
   for(const rule of FOOD_UNIT_RULES){
     if(rule.kw.some(k=>nn.includes(normalizeStr(k)))){
-      return {unit: rule.unit, gpU: rule.gpU};
+      return {unit: rule.unit, gpU: rule.gpU, allowed: rule.allowed||null};
     }
   }
-  return {unit:"g", gpU:null};
+  return {unit:"g", gpU:null, allowed:null};
 }
 
 function getPortionGrams(unitId, customG){
