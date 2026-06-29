@@ -147,6 +147,14 @@ body{height:100%;overflow:hidden;font-family:var(--font);background:var(--bg);co
 .set-in{background:var(--surface2);border:1px solid var(--border);border-radius:var(--r-sm);padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:14px;width:60px;outline:none;text-align:center}
 .set-in:focus{border-color:var(--accent)}
 .ex-footer{padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center}
+@keyframes prFlash{0%{opacity:0;transform:translate(-50%,-70%) scale(0.6)}25%{opacity:1;transform:translate(-50%,-50%) scale(1.15)}80%{opacity:1;transform:translate(-50%,-50%) scale(1)}100%{opacity:0;transform:translate(-50%,-40%) scale(0.9)}}
+.pr-badge{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:linear-gradient(135deg,var(--accent),var(--teal));color:#0e0e10;padding:8px 20px;border-radius:24px;font-weight:700;font-size:15px;z-index:20;pointer-events:none;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,0.4);animation:prFlash 2.5s ease-out forwards}
+#rest-timer-panel{position:fixed;bottom:0;left:0;right:0;max-width:430px;margin:0 auto;background:var(--surface);border-top:2px solid var(--accent);padding:14px 18px 30px;z-index:800;transform:translateY(100%);transition:transform 0.3s ease;box-shadow:0 -8px 30px rgba(0,0,0,0.5)}
+#rest-timer-panel.show{transform:translateY(0)}
+.rest-preset{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:6px 12px;color:var(--text2);font-family:var(--mono);font-size:13px;cursor:pointer}
+.rest-preset.active{border-color:var(--accent);color:var(--accent)}
+#gym-session-timer{display:none;align-items:center;gap:6px;padding:0 18px 10px;font-size:12px;color:var(--text3)}
+#gym-session-timer span{font-family:var(--mono);color:var(--accent);font-size:14px;font-weight:600}
 .btn{background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:6px 14px;color:var(--text);font-family:var(--font);font-size:13px;cursor:pointer;transition:all 0.15s}
 .btn:hover{background:var(--surface3)}
 .btn.primary{background:var(--accent);border-color:var(--accent);color:#0e0e10;font-weight:500}
@@ -380,6 +388,8 @@ select option{background:#18181c}
     <button class="btn" style="margin-left:auto;font-size:12px" onclick="showAddExModal()">+ Ejercicio</button>
   </div>
   <div class="day-tabs" id="day-tabs"></div>
+  <!-- Cronómetro de sesión -->
+  <div id="gym-session-timer">⏱ Sesión en curso: <span id="gym-timer-display">0:00</span></div>
   <!-- Sugerencia IA -->
   <div style="padding:0 18px;margin-bottom:8px">
     <button class="btn wide" id="ai-suggest-btn" onclick="sugerirRutinaIA()" style="font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -817,6 +827,7 @@ select option{background:#18181c}
       <button class="mode-tab active" id="prog-tab-vol" onclick="switchProgTab('vol')">Volumen total</button>
       <button class="mode-tab" id="prog-tab-peso" onclick="switchProgTab('peso')">Peso máximo</button>
     </div>
+    <div id="prog-1rm" style="display:none;background:var(--surface2);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center"></div>
     <div id="prog-chart" style="margin-bottom:14px"></div>
     <div id="prog-table"></div>
     <div id="prog-empty" style="display:none;text-align:center;padding:24px;color:var(--text3);font-size:13px">Todavía no hay sesiones registradas para este ejercicio.</div>
@@ -895,6 +906,11 @@ function initFirebase(){
   firebase.initializeApp(firebaseConfig);
   fbAuth = firebase.auth();
   fbDb = firebase.firestore();
+  // Persistencia offline: escribe a Firestore se encolan y sincronizan al volver la señal
+  fbDb.enablePersistence({synchronizeTabs:false}).catch(e=>{
+    if(e.code==="failed-precondition")console.warn("Persistencia: múltiples tabs");
+    else if(e.code==="unimplemented")console.warn("Persistencia no soportada en este browser");
+  });
   fbAuth.onAuthStateChanged(user => {
     fbUser = user;
     updateAuthUI();
@@ -2191,10 +2207,13 @@ function renderGymEx(){
   const allDays=getDays(),saved=(allDays[date]?.gym||{})[currentGymDay]||{},p=getProfile();
   document.getElementById("gym-ex-list").innerHTML=day.exercises.map((ex,ei)=>{
     const sets=saved[ei]||getLastExSets(currentGymDay,ei,date,ex.sets);
-    const prev=getPrevBest(currentGymDay,ei,date),exKcal=exerciseKcal(ex,sets,p.peso);
+    const prevData=getPrevBestData(currentGymDay,ei,date);
+    const prev=prevData?prevData.peso+"kg × "+prevData.reps+" reps":null;
+    const rm1=prevData?calcEpley(prevData.peso,prevData.reps):null;
+    const exKcal=exerciseKcal(ex,sets,p.peso);
     const baseCount=getUserRoutine()[currentGymDay]?.exercises?.length||0;
     const isCustom=ei>=baseCount;
-    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor anterior: ${prev}</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>setIsDS(s)?renderDSSetBlock(s,si,ei,ex):renderNormalSetRow(s,si,ei,ex)).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-baseCount})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
+    return`<div class="ex-block" id="exblock-${ei}"><div class="ex-hdr"><div><div class="ex-name">${ex.name}${isCustom?" <span style='font-size:10px;color:var(--accent)'>+tuyo</span>":""}</div><div class="ex-muscle">${ex.muscle}</div></div><span class="ex-schema">${ex.schema}</span></div>${prev?`<div class="ex-prev">↺ Mejor: ${prev}${rm1?` <span style="color:var(--purple);margin-left:6px">≈${rm1}kg 1RM</span>`:"" }</div>`:""}<div class="ex-kcal-row" id="exkcal-${ei}" style="${exKcal>0?"":"display:none"}">≈ ${exKcal} kcal quemadas</div><div class="sets-area">${sets.map((s,si)=>setIsDS(s)?renderDSSetBlock(s,si,ei,ex):renderNormalSetRow(s,si,ei,ex)).join("")}</div><div class="ex-footer"><button class="btn" onclick="showExProgress(${currentGymDay},${ei})" style="padding:6px 10px" title="Ver progreso">📈</button><button class="btn" onclick="loadLastSessionSets(${ei},${ex.sets},'${date}')" style="padding:6px 10px" title="Cargar valores de la última sesión">↺</button><button class="btn primary" onclick="saveExSets(${ei},${ex.sets},'${date}')">Guardar</button>${isCustom?`<button class="btn danger" onclick="deleteCustomEx(${currentGymDay},${ei-baseCount})">Eliminar</button>`:""}<span class="saved-msg" id="smsg-${ei}"></span></div></div>`;
   }).join("")+`<div style="padding:0 18px;margin-bottom:16px"><button class="btn primary wide" onclick="saveAllSets(${day.exercises.length},'${date}')">Guardar toda la sesión</button></div>`;
 }
 function liveExKcal(ei,numSets,type){
@@ -2228,19 +2247,41 @@ function saveExSets(ei,numSets,date){
       const d0=g(0);sets.push({peso:d0.peso,reps:d0.reps,ds:true,drops:[g(1),g(2)]});
     }else{const rpeVal=document.getElementById(`ex${ei}-s${si}-rpe`)?.value;sets.push({peso:document.getElementById(`ex${ei}-s${si}-p`)?.value??"",reps:document.getElementById(`ex${ei}-s${si}-r`)?.value??"",rpe:rpeVal?+rpeVal:null,ds:false});}
   }
-  const allDays=getDays();if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90};if(!allDays[date].gym)allDays[date].gym={};if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};allDays[date].gym[currentGymDay][ei]=sets;ss("days",allDays);syncToCloud("days",allDays);const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
+  const allDays=getDays();
+  const isFirstSave=date===TODAY&&!allDays[date]?.gymOn&&!allDays[date]?.gym?.[currentGymDay];
+  if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
+  if(!allDays[date].gym)allDays[date].gym={};
+  if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};
+  allDays[date].gym[currentGymDay][ei]=sets;
+  ss("days",allDays);syncToCloud("days",allDays);
+  const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}
+  if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
+  // Cronómetro de sesión: arrancar en el primer save del día
+  if(isFirstSave)startGymTimer();
+  // Detección de PR
+  const validSets=sets.filter(s=>s.peso&&s.reps);
+  if(validSets.length)checkForPR(ei,validSets,currentGymDay,date);
+  // Timer de descanso
+  startRestTimer(_rt.lastPreset||90);
 }
 function saveAllSets(numEx,date){
   const day=getRoutine()[currentGymDay];
   for(let ei=0;ei<numEx;ei++)saveExSets(ei,day.exercises[ei].sets,date);
-  // Registrar qué rutina se usó en esta sesión
-  if(currentSessionRoutineId){
-    const allDays=getDays();
-    if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
-    allDays[date].gymRoutineId=currentSessionRoutineId;
-    ss("days",allDays);syncToCloud("days",allDays);
-  }
-  updateLeaderboard();showToast("Sesión guardada","ok");
+  // Registrar rutina usada y duración de sesión
+  const allDays=getDays();
+  if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
+  if(currentSessionRoutineId)allDays[date].gymRoutineId=currentSessionRoutineId;
+  const elapsed=_gymStart?Math.floor((Date.now()-_gymStart)/1000):0;
+  if(elapsed>60)allDays[date].gymDuration=elapsed;
+  ss("days",allDays);syncToCloud("days",allDays);
+  // Detener timers
+  stopRestTimer();
+  stopGymTimer();
+  const timerEl=document.getElementById("gym-session-timer");
+  if(timerEl)timerEl.style.display="none";
+  _gymStart=null;
+  updateLeaderboard();
+  showToast(elapsed>60?"Sesión guardada · "+formatDuration(elapsed):"Sesión guardada","ok");
 }
 function showAddExModal(){
   const modal=document.getElementById("add-ex-modal");
@@ -2325,7 +2366,17 @@ function switchProgTab(tab){
 
 function renderProgress(){
   const empty=document.getElementById('prog-empty'),chart=document.getElementById('prog-chart'),table=document.getElementById('prog-table');
-  if(!progHistory.length){empty.style.display='block';chart.style.display='none';table.style.display='none';return;}
+  if(!progHistory.length){empty.style.display='block';chart.style.display='none';table.style.display='none';const r1=document.getElementById('prog-1rm');if(r1)r1.style.display='none';return;}
+  // 1RM estimado: encontrar el mejor set de toda la historia
+  const rm1El=document.getElementById('prog-1rm');
+  if(rm1El){
+    let bestRM=0,bestSet=null;
+    progHistory.forEach(h=>h.sets.filter(s=>s.peso&&s.reps&&+s.reps<=15).forEach(s=>{const rm=calcEpley(s.peso,s.reps);if(rm>bestRM){bestRM=rm;bestSet=s;}}));
+    if(bestRM>0&&bestSet){
+      rm1El.style.display='flex';
+      rm1El.innerHTML=`<div><div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em">1RM estimado (Epley)</div><div style="font-size:11px;color:var(--text3);margin-top:2px">basado en ${bestSet.peso}kg × ${bestSet.reps} reps</div></div><div style="font-size:20px;font-weight:700;font-family:var(--mono);color:var(--purple)">${bestRM} kg</div>`;
+    }else{rm1El.style.display='none';}
+  }
   empty.style.display='none';chart.style.display='block';table.style.display='block';
   const isVol=progTab==='vol',key=isVol?'volume':'maxPeso';
   const label=isVol?'Volumen total (kg)':'Peso máximo (kg)';
@@ -3354,6 +3405,158 @@ function confirmRoutineImport(){
   showToast("Rutina guardada","ok");
 }
 
+// ─── 1RM ESTIMADO (Epley) ─────────────────────────────────────────
+function calcEpley(peso,reps){
+  if(!peso||!reps||+reps<=0)return 0;
+  if(+reps===1)return +peso;
+  return Math.round(+peso*(1+(+reps/30))*10)/10;
+}
+function getPrevBestData(dayN,exIdx,currentDate){
+  const allDays=getDays();
+  for(const d of Object.keys(allDays).filter(d=>d<currentDate).sort().reverse()){
+    const g=allDays[d]?.gym;
+    if(g&&g[dayN]&&g[dayN][exIdx]){
+      const sets=(g[dayN][exIdx]||[]).filter(s=>s.peso&&s.reps);
+      if(sets.length){
+        // Mejor set por volumen (peso×reps)
+        const best=sets.reduce((a,s)=>(+s.peso*+s.reps)>(+a.peso*+a.reps)?s:a,sets[0]);
+        return{peso:+best.peso,reps:+best.reps,vol:+best.peso*+best.reps};
+      }
+    }
+  }
+  return null;
+}
+
+// ─── PR DETECTION ─────────────────────────────────────────────────
+function checkForPR(ei,sets,dayN,date){
+  const prev=getPrevBestData(dayN,ei,date);
+  if(!prev)return; // primer registro de este ejercicio
+  const newMaxVol=Math.max(0,...sets.filter(s=>s.peso&&s.reps).map(s=>+s.peso*+s.reps));
+  if(newMaxVol>prev.vol)showPRCelebration(ei);
+}
+function showPRCelebration(ei){
+  const block=document.getElementById("exblock-"+ei);if(!block)return;
+  block.style.position="relative";
+  const badge=document.createElement("div");
+  badge.className="pr-badge";badge.textContent="🎉 ¡Nuevo récord!";
+  block.appendChild(badge);
+  setTimeout(()=>badge.remove(),2600);
+  if(navigator.vibrate)navigator.vibrate([100,50,100,50,200]);
+}
+
+// ─── REST TIMER ───────────────────────────────────────────────────
+const _rt={active:false,paused:false,total:90,remaining:90,interval:null,lastPreset:90};
+function playBeep(){
+  try{
+    const ctx=new(window.AudioContext||window.webkitAudioContext)();
+    const b=(t,f,d)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.start(t);o.stop(t+d+0.05);};
+    b(ctx.currentTime,880,0.15);b(ctx.currentTime+0.2,1100,0.15);b(ctx.currentTime+0.4,1320,0.3);
+    setTimeout(()=>ctx.close(),1200);
+  }catch(e){}
+}
+function _rtUpdateDisplay(){
+  const s=_rt.remaining,m=Math.floor(s/60),sec=s%60;
+  const disp=document.getElementById("rest-timer-display");
+  if(disp){disp.textContent=m+":"+(sec<10?"0":"")+sec;disp.style.color=s<=10?"var(--red)":s<=30?"var(--amber)":"var(--accent)";}
+  const bar=document.getElementById("rest-timer-bar");
+  if(bar)bar.style.width=(_rt.total>0?Math.round(_rt.remaining/_rt.total*100):0)+"%";
+  document.querySelectorAll(".rest-preset").forEach(b=>{
+    const v=+b.onclick?.toString().match(/\d+/)?.[0];
+    b.classList.toggle("active",v===_rt.lastPreset&&_rt.total===_rt.lastPreset);
+  });
+}
+function startRestTimer(seconds){
+  if(_rt.interval)clearInterval(_rt.interval);
+  _rt.active=true;_rt.paused=false;_rt.total=seconds;_rt.remaining=seconds;_rt.lastPreset=seconds;
+  const panel=document.getElementById("rest-timer-panel");
+  if(panel)panel.classList.add("show");
+  const btn=document.getElementById("rest-toggle-btn");
+  if(btn)btn.textContent="⏸ Pausar";
+  _rtUpdateDisplay();
+  _rt.interval=setInterval(()=>{
+    if(_rt.paused)return;
+    _rt.remaining--;
+    _rtUpdateDisplay();
+    if(_rt.remaining<=0){onRestTimerDone();}
+  },1000);
+}
+function onRestTimerDone(){
+  clearInterval(_rt.interval);_rt.interval=null;_rt.active=false;
+  playBeep();
+  if(navigator.vibrate)navigator.vibrate([300,100,300]);
+  const disp=document.getElementById("rest-timer-display");
+  if(disp){disp.textContent="¡Listo!";disp.style.color="var(--teal)";}
+  setTimeout(stopRestTimer,2000);
+}
+function stopRestTimer(){
+  if(_rt.interval){clearInterval(_rt.interval);_rt.interval=null;}
+  _rt.active=false;_rt.paused=false;
+  const panel=document.getElementById("rest-timer-panel");
+  if(panel)panel.classList.remove("show");
+}
+function toggleRestTimerPause(){
+  _rt.paused=!_rt.paused;
+  const btn=document.getElementById("rest-toggle-btn");
+  if(btn)btn.textContent=_rt.paused?"▶ Continuar":"⏸ Pausar";
+}
+function setRestTime(seconds){
+  if(!seconds||seconds<5)return;
+  _rt.lastPreset=seconds;
+  if(_rt.active){startRestTimer(seconds);}
+  else{_rt.total=seconds;_rt.remaining=seconds;_rtUpdateDisplay();startRestTimer(seconds);}
+}
+
+// ─── SESSION DURATION TIMER ───────────────────────────────────────
+let _gymStart=null,_gymInterval=null;
+function startGymTimer(){
+  if(_gymStart)return;
+  _gymStart=Date.now();
+  const el=document.getElementById("gym-session-timer");
+  if(el)el.style.display="flex";
+  _gymInterval=setInterval(updateGymTimerDisplay,1000);
+  updateGymTimerDisplay();
+}
+function stopGymTimer(){
+  if(_gymInterval){clearInterval(_gymInterval);_gymInterval=null;}
+}
+function updateGymTimerDisplay(){
+  const el=document.getElementById("gym-timer-display");if(!el)return;
+  const s=Math.floor((Date.now()-(_gymStart||Date.now()))/1000);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  el.textContent=h>0?h+":"+(m<10?"0":"")+m+":"+(sec<10?"0":"")+sec:m+":"+(sec<10?"0":"")+sec;
+}
+function formatDuration(s){
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
+  return h>0?h+"h "+m+"min":m+"min";
+}
+
+// ─── CARGAR ÚLTIMA SESIÓN ─────────────────────────────────────────
+function loadLastSessionSets(ei,numSets,date){
+  const lastSets=getLastExSets(currentGymDay,ei,date,numSets);
+  const hasValues=lastSets.some(s=>s.peso||s.reps);
+  if(!hasValues){showToast("Sin sesión previa para este ejercicio","err");return;}
+  lastSets.forEach((s,si)=>{
+    const p=document.getElementById(`ex${ei}-s${si}-p`),r=document.getElementById(`ex${ei}-s${si}-r`);
+    if(p&&s.peso)p.value=s.peso;
+    if(r&&s.reps)r.value=s.reps;
+  });
+  const t=getRoutine()[currentGymDay]?.exercises[ei]?.type||"compound";
+  liveExKcal(ei,numSets,t);
+  showToast("Valores de la última sesión cargados","ok");
+}
+
+// ─── OFFLINE / ONLINE ──────────────────────────────────────────────
+window.addEventListener("online",()=>{
+  showToast("Señal recuperada — sincronizando...","ok");
+  if(fbUser&&fbDb){
+    const allDays=getDays();syncToCloud("days",allDays);
+    for(const k of SYNC_KEYS){const v=ls(k,null);if(v!==null)syncToCloud(k,v);}
+  }
+});
+window.addEventListener("offline",()=>{
+  showToast("Sin conexión — los datos se guardan localmente","err");
+});
+
 if("serviceWorker" in navigator){
   window.addEventListener("load",function(){
     navigator.serviceWorker.register("sw.js").then(function(reg){
@@ -3376,5 +3579,28 @@ if("serviceWorker" in navigator){
   });
 }
 </script>
+
+<!-- REST TIMER PANEL -->
+<div id="rest-timer-panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em">⏱ Descanso entre series</div>
+    <button onclick="stopRestTimer()" style="background:none;border:none;color:var(--text3);font-size:18px;cursor:pointer;padding:2px 6px;line-height:1">×</button>
+  </div>
+  <div id="rest-timer-display" style="font-size:52px;font-weight:700;font-family:var(--mono);text-align:center;letter-spacing:-2px;margin-bottom:10px;transition:color 0.3s">1:30</div>
+  <div style="height:4px;background:var(--border);border-radius:2px;margin-bottom:14px;overflow:hidden">
+    <div id="rest-timer-bar" style="height:100%;width:100%;background:var(--accent);border-radius:2px;transition:width 1s linear"></div>
+  </div>
+  <div style="display:flex;gap:6px;justify-content:center;margin-bottom:12px;flex-wrap:wrap">
+    <button class="rest-preset" onclick="setRestTime(60)">60s</button>
+    <button class="rest-preset" onclick="setRestTime(90)">90s</button>
+    <button class="rest-preset" onclick="setRestTime(120)">2 min</button>
+    <button class="rest-preset" onclick="setRestTime(180)">3 min</button>
+    <input type="number" id="rest-custom-input" min="10" max="600" placeholder="seg" style="width:64px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:6px 8px;color:var(--text);font-family:var(--mono);font-size:13px;text-align:center;outline:none" onchange="setRestTime(+this.value)">
+  </div>
+  <div style="display:flex;gap:8px">
+    <button id="rest-toggle-btn" class="btn primary wide" onclick="toggleRestTimerPause()">⏸ Pausar</button>
+    <button class="btn" onclick="stopRestTimer()" style="flex-shrink:0">Saltear</button>
+  </div>
+</div>
 </body>
 </html>
