@@ -691,14 +691,18 @@ select option{background:#18181c}
 <div class="modal-overlay" id="add-ex-modal">
   <div class="add-ex-inner">
     <div class="modal-hdr" style="margin-bottom:16px"><div class="modal-title">Agregar ejercicio</div><button class="modal-close" onclick="closeAddExModal()">×</button></div>
-    <div class="form-group"><label class="form-label">Día</label>
+    <div class="form-group" id="new-ex-day-row"><label class="form-label">Día</label>
       <select class="form-input form-sel" id="new-ex-day">
         <option value="1">Día 1 · Pecho, bíceps y hombro</option><option value="2">Día 2 · Espalda y tríceps</option>
         <option value="3">Día 3 · Cuádriceps, isquio y hombro</option><option value="4">Día 4 · Tren superior</option>
         <option value="5">Día 5 · Isquio, cuádriceps y hombro</option>
       </select>
     </div>
-    <div class="form-group"><label class="form-label">Nombre</label><input type="text" class="form-input" id="new-ex-name" placeholder="ej: Aperturas con mancuernas"></div>
+    <div class="form-group" style="position:relative">
+      <label class="form-label">Nombre</label>
+      <input type="text" class="form-input" id="new-ex-name" placeholder="ej: Aperturas con mancuernas" autocomplete="off" oninput="onExNameInput()">
+      <div id="ex-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);z-index:200;max-height:200px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.3)"></div>
+    </div>
     <div class="form-row">
       <div class="form-group"><label class="form-label">Grupo muscular</label><input type="text" class="form-input" id="new-ex-muscle" placeholder="ej: Pecho"></div>
       <div class="form-group"><label class="form-label">Series</label><input type="number" class="form-input" id="new-ex-sets" placeholder="4" min="1" max="10"></div>
@@ -740,19 +744,29 @@ select option{background:#18181c}
       <div class="modal-title">⚙️ Rutinas guardadas</div>
       <button class="modal-close" onclick="closeRoutineModal()">×</button>
     </div>
-    <!-- Biblioteca de rutinas -->
-    <div id="routine-library" style="margin-bottom:12px"></div>
-    <!-- Guardar rutina actual con nombre -->
-    <div style="display:flex;gap:6px;margin-bottom:14px">
-      <input type="text" class="form-input" id="routine-save-name" placeholder="Nombre (ej: Rutina A, Viaje...)" style="flex:1;font-size:13px">
-      <button class="btn primary" style="font-size:12px;white-space:nowrap" onclick="saveRoutineAs()">Guardar como nueva</button>
+    <!-- Barra de borrador (solo visible en draft mode) -->
+    <div id="routine-draft-bar" style="display:none;background:var(--surface2);border:1px solid var(--accent);border-radius:var(--r-sm);padding:12px;margin-bottom:14px">
+      <div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px">✏️ Nueva rutina — borrador</div>
+      <input type="text" class="form-input" id="draft-name" placeholder="Nombre de esta rutina..." style="margin-bottom:8px;font-size:13px">
+      <div style="display:flex;gap:8px">
+        <button class="btn primary wide" onclick="saveDraft()">✓ Guardar rutina</button>
+        <button class="btn danger" style="flex-shrink:0" onclick="exitDraftMode()">✗ Descartar</button>
+      </div>
     </div>
-    <div style="height:1px;background:var(--border);margin-bottom:14px"></div>
-    <!-- Editor de ejercicios -->
+    <!-- Sección normal (biblioteca + guardar como nueva) -->
+    <div id="routine-normal-section">
+      <div id="routine-library" style="margin-bottom:12px"></div>
+      <div style="display:flex;gap:6px;margin-bottom:14px">
+        <input type="text" class="form-input" id="routine-save-name" placeholder="Nombre (ej: Rutina A, Viaje...)" style="flex:1;font-size:13px">
+        <button class="btn primary" style="font-size:12px;white-space:nowrap" onclick="saveRoutineAs()">Guardar como nueva</button>
+      </div>
+      <div style="height:1px;background:var(--border);margin-bottom:14px"></div>
+    </div>
+    <!-- Editor de ejercicios (común a ambos modos) -->
     <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px" id="routine-edit-label">Editar ejercicios</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn wide" onclick="openRoutineImport()" style="font-size:13px">📝 Importar con IA</button>
-      <button class="btn danger" onclick="resetRoutine()" style="font-size:12px;flex-shrink:0">Resetear</button>
+      <button class="btn danger" id="routine-reset-btn" onclick="resetRoutine()" style="font-size:12px;flex-shrink:0">Resetear</button>
     </div>
     <div class="mode-tabs" id="routine-day-tabs" style="margin-bottom:12px;overflow-x:auto;flex-wrap:nowrap"></div>
     <div id="routine-ex-list" style="margin-bottom:12px"></div>
@@ -1529,6 +1543,7 @@ function getTodayData(){return getDayData(selectedHoyDate)}
 function saveTodayData(data){saveDayData(selectedHoyDate,data)}
 // ─── MÚLTIPLES RUTINAS ────────────────────────────────────────────
 let currentSessionRoutineId=null; // rutina seleccionada para la sesión (no persiste)
+let draftRoutine=null; // objeto en memoria mientras se arma una rutina nueva
 function genId(){return Math.random().toString(36).substr(2,9);}
 function getSavedRoutines(){
   const existing=ls("savedRoutines",[]);
@@ -2227,10 +2242,45 @@ function saveAllSets(numEx,date){
   }
   updateLeaderboard();showToast("Sesión guardada","ok");
 }
-function showAddExModal(){document.getElementById("add-ex-modal").classList.add("show");document.getElementById("new-ex-day").value=currentGymDay;}
+function showAddExModal(){
+  const modal=document.getElementById("add-ex-modal");
+  modal.classList.add("show");
+  const dayRow=document.getElementById("new-ex-day-row");
+  if(dayRow)dayRow.style.display=draftRoutine?"none":"";
+  if(!draftRoutine)document.getElementById("new-ex-day").value=currentGymDay;
+  ["new-ex-name","new-ex-muscle","new-ex-schema"].forEach(id=>{const el=document.getElementById(id);if(el)el.value="";});
+  document.getElementById("new-ex-sets").value="";
+  const box=document.getElementById("ex-suggestions");
+  if(box){box.innerHTML="";box.style.display="none";}
+  setTimeout(()=>document.getElementById("new-ex-name")?.focus(),100);
+}
 function closeAddExModal(){document.getElementById("add-ex-modal").classList.remove("show");}
 document.getElementById("add-ex-modal").addEventListener("click",function(e){if(e.target===this)closeAddExModal();});
-function addExerciseToRoutine(){const dayN=+document.getElementById("new-ex-day").value,name=document.getElementById("new-ex-name").value.trim(),muscle=document.getElementById("new-ex-muscle").value.trim(),sets=+document.getElementById("new-ex-sets").value||3,schema=document.getElementById("new-ex-schema").value.trim()||sets+"x10-12",type=document.getElementById("new-ex-type").value;if(!name){showToast("Ingresá el nombre","err");return;}const custom=ls("customExercises",{});if(!custom[dayN])custom[dayN]=[];custom[dayN].push({name,muscle,sets,schema,type});ss("customExercises",custom);syncToCloud("customExercises",custom);closeAddExModal();currentGymDay=dayN;renderGym();showToast("Ejercicio agregado","ok");}
+function addExerciseToRoutine(){
+  const name=document.getElementById("new-ex-name").value.trim();
+  const muscle=document.getElementById("new-ex-muscle").value.trim();
+  const sets=+document.getElementById("new-ex-sets").value||3;
+  const schema=document.getElementById("new-ex-schema").value.trim()||sets+"x10-12";
+  const type=document.getElementById("new-ex-type").value;
+  if(!name){showToast("Ingresá el nombre","err");return;}
+  if(draftRoutine){
+    // Modo borrador: agrega al objeto en memoria, no persiste todavía
+    const dayN=currentRoutineEditorDay;
+    if(!draftRoutine[dayN])return;
+    draftRoutine[dayN].exercises.push({name,muscle,sets,schema,type});
+    closeAddExModal();
+    renderRoutineEditor();
+    showToast("Ejercicio agregado al borrador","ok");
+    return;
+  }
+  // Modo normal: agrega a customExercises (persiste inmediatamente)
+  const dayN=+document.getElementById("new-ex-day").value;
+  const custom=ls("customExercises",{});
+  if(!custom[dayN])custom[dayN]=[];
+  custom[dayN].push({name,muscle,sets,schema,type});
+  ss("customExercises",custom);syncToCloud("customExercises",custom);
+  closeAddExModal();currentGymDay=dayN;renderGym();showToast("Ejercicio agregado","ok");
+}
 function deleteCustomEx(dayN,customIdx){if(!confirm("¿Eliminar este ejercicio?"))return;const custom=ls("customExercises",{});if(custom[dayN])custom[dayN].splice(customIdx,1);ss("customExercises",custom);syncToCloud("customExercises",custom);renderGym();showToast("Eliminado","ok");}
 
 // ─── GYM PROGRESS ─────────────────────────────────────────────────
@@ -3084,25 +3134,92 @@ function renderRoutineLibrary(){
   const routines=getSavedRoutines();
   const lib=document.getElementById("routine-library");
   if(!lib)return;
-  if(!routines.length){lib.innerHTML="";return;}
   lib.innerHTML=routines.map(r=>{
     const isActive=r.id===(currentSessionRoutineId||"main");
     return`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:9px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;${isActive?"border:1px solid var(--accent)":"border:1px solid transparent"}"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>${isActive?`<div style="font-size:10px;color:var(--accent);margin-top:2px">● Activa en esta sesión</div>`:""}</div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" style="font-size:11px;padding:3px 8px" onclick="useRoutineInSession('${r.id}')">${isActive?"✓ Usando":"Usar"}</button><button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteSavedRoutine('${r.id}')">✕</button></div></div>`;
-  }).join("");
+  }).join("")+`<button class="btn wide" style="font-size:12px;margin-top:4px" onclick="startNewRoutineDraft()">✏️ Nueva rutina desde cero</button>`;
 }
 function renderRoutineEditor(){
-  renderRoutineLibrary();
-  const r=getUserRoutine();
+  const isDraft=draftRoutine!==null;
+  // Mostrar/ocultar barra de borrador y sección normal
+  const draftBar=document.getElementById("routine-draft-bar");
+  const normalSec=document.getElementById("routine-normal-section");
+  const resetBtn=document.getElementById("routine-reset-btn");
+  if(draftBar)draftBar.style.display=isDraft?"block":"none";
+  if(normalSec)normalSec.style.display=isDraft?"none":"";
+  if(resetBtn)resetBtn.style.display=isDraft?"none":"";
+  if(!isDraft)renderRoutineLibrary();
+  const r=isDraft?draftRoutine:getUserRoutine();
   const label=document.getElementById("routine-edit-label");
   if(label){
-    const name=currentSessionRoutineId?getSavedRoutines().find(x=>x.id===currentSessionRoutineId)?.name||"rutina activa":"Mi rutina";
-    label.textContent="Editar ejercicios · "+name;
+    if(isDraft){label.textContent="Ejercicios del borrador";}
+    else{const name=currentSessionRoutineId?getSavedRoutines().find(x=>x.id===currentSessionRoutineId)?.name||"rutina activa":"Mi rutina";label.textContent="Editar ejercicios · "+name;}
   }
   const tabs=Object.entries(r).map(([d,day])=>`<button class="mode-tab${+d===currentRoutineEditorDay?" active":""}" onclick="currentRoutineEditorDay=${d};renderRoutineEditor()">${day.short}</button>`).join("");
   document.getElementById("routine-day-tabs").innerHTML=tabs;
   const day=r[currentRoutineEditorDay];
   if(!day){document.getElementById("routine-ex-list").innerHTML="";return;}
-  document.getElementById("routine-ex-list").innerHTML=day.exercises.length?day.exercises.map((ex,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500">${ex.name}</div><div style="font-size:11px;color:var(--text3)">${ex.muscle} · ${ex.schema}</div></div><button class="btn danger" style="font-size:12px;padding:4px 10px" onclick="deleteBaseExercise(${currentRoutineEditorDay},${i})">✕</button></div>`).join(""):`<div style="padding:16px;text-align:center;font-size:13px;color:var(--text3)">No hay ejercicios en este día.</div>`;
+  document.getElementById("routine-ex-list").innerHTML=day.exercises.length?day.exercises.map((ex,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500">${ex.name}</div><div style="font-size:11px;color:var(--text3)">${ex.muscle} · ${ex.schema}</div></div><button class="btn danger" style="font-size:12px;padding:4px 10px" onclick="deleteBaseExercise(${currentRoutineEditorDay},${i})">✕</button></div>`).join(""):`<div style="padding:16px;text-align:center;font-size:13px;color:var(--text3)">${isDraft?"Todavía no hay ejercicios — agregá o importá con IA":"No hay ejercicios en este día."}</div>`;
+}
+// ─── FUNCIONES DE BORRADOR ────────────────────────────────────────
+function startNewRoutineDraft(){
+  draftRoutine={
+    1:{label:"Día 1",short:"Día 1",color:"#ff5e5e",exercises:[]},
+    2:{label:"Día 2",short:"Día 2",color:"#ffc947",exercises:[]},
+    3:{label:"Día 3",short:"Día 3",color:"#c8f564",exercises:[]},
+    4:{label:"Día 4",short:"Día 4",color:"#64b5f6",exercises:[]},
+    5:{label:"Día 5",short:"Día 5",color:"#b39ddb",exercises:[]},
+  };
+  currentRoutineEditorDay=1;
+  const nameEl=document.getElementById("draft-name");
+  if(nameEl)nameEl.value="";
+  renderRoutineEditor();
+}
+function exitDraftMode(){
+  if(!confirm("¿Descartár el borrador? Los ejercicios que agregaste se perderán."))return;
+  draftRoutine=null;
+  renderRoutineEditor();
+}
+function saveDraft(){
+  const name=(document.getElementById("draft-name")?.value||"").trim();
+  if(!name){showToast("Ingresá un nombre para la rutina","err");return;}
+  const arr=getSavedRoutines();
+  if(arr.find(r=>r.name===name)){showToast("Ya existe una rutina con ese nombre","err");return;}
+  arr.push({id:genId(),name,data:JSON.parse(JSON.stringify(draftRoutine))});
+  saveSavedRoutines(arr);
+  draftRoutine=null;
+  renderRoutineEditor();
+  renderSessionRoutineSel();
+  showToast("Rutina '"+name+"' guardada ✓","ok");
+}
+// ─── AUTOCOMPLETADO DE EJERCICIOS ─────────────────────────────────
+function getAllExerciseSuggestions(){
+  const seen=new Set(),list=[];
+  const add=ex=>{if(!ex?.name)return;const key=normalizeStr(ex.name);if(!seen.has(key)){seen.add(key);list.push({name:ex.name,muscle:ex.muscle||"",type:ex.type||"isolation"});}};
+  Object.values(ROUTINE_BASE).forEach(d=>d.exercises.forEach(add));
+  getSavedRoutines().forEach(r=>Object.values(r.data||{}).forEach(d=>(d.exercises||[]).forEach(add)));
+  Object.values(ls("customExercises",{})).forEach(arr=>arr.forEach(add));
+  return list;
+}
+function onExNameInput(){
+  const q=normalizeStr(document.getElementById("new-ex-name")?.value||"");
+  const box=document.getElementById("ex-suggestions");
+  if(!box)return;
+  if(q.length<2){box.innerHTML="";box.style.display="none";return;}
+  const matches=getAllExerciseSuggestions().filter(s=>normalizeStr(s.name).includes(q)).slice(0,7);
+  if(!matches.length){box.innerHTML="";box.style.display="none";return;}
+  box.style.display="block";
+  box.innerHTML=matches.map(s=>`<div style="padding:9px 12px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center" onmousedown="selectExSuggestion(${JSON.stringify(s.name)},${JSON.stringify(s.muscle)},${JSON.stringify(s.type)})"><span>${s.name}</span><span style="font-size:11px;color:var(--text3)">${s.muscle}</span></div>`).join("");
+}
+function selectExSuggestion(name,muscle,type){
+  document.getElementById("new-ex-name").value=name;
+  document.getElementById("new-ex-muscle").value=muscle;
+  document.getElementById("new-ex-type").value=type;
+  document.getElementById("new-ex-sets").value="";
+  document.getElementById("new-ex-schema").value="";
+  const box=document.getElementById("ex-suggestions");
+  if(box){box.innerHTML="";box.style.display="none";}
+  document.getElementById("new-ex-sets")?.focus();
 }
 function saveRoutineAs(){
   const name=(document.getElementById("routine-save-name")?.value||"").trim();
@@ -3147,6 +3264,12 @@ function onSessionRoutineChange(){
   renderGymEx();
 }
 function deleteBaseExercise(dayN,ei){
+  if(draftRoutine){
+    if(!confirm("¿Eliminar este ejercicio del borrador?"))return;
+    if(draftRoutine[dayN])draftRoutine[dayN].exercises.splice(ei,1);
+    renderRoutineEditor();
+    return;
+  }
   if(!confirm("¿Eliminar este ejercicio de tu rutina base?"))return;
   const r=getUserRoutine();
   if(!r[dayN])return;
@@ -3157,8 +3280,12 @@ function deleteBaseExercise(dayN,ei){
   showToast("Ejercicio eliminado","ok");
 }
 function addExToCurrentRoutineDay(){
-  closeRoutineModal();
-  currentGymDay=currentRoutineEditorDay;
+  if(!draftRoutine){
+    // Modo normal: cierra el editor de rutina y abre el modal de agregar
+    closeRoutineModal();
+    currentGymDay=currentRoutineEditorDay;
+  }
+  // En borrador: el routine-modal queda abierto detrás del add-ex-modal
   showAddExModal();
 }
 function resetRoutine(){
@@ -3210,6 +3337,15 @@ function showRoutinePreview(){
 function closeRoutinePreview(){document.getElementById("routine-preview-modal").classList.remove("show");}
 function confirmRoutineImport(){
   if(!pendingRoutineImport)return;
+  if(draftRoutine){
+    // En borrador: la importación rellena el draft en memoria
+    draftRoutine=pendingRoutineImport;
+    pendingRoutineImport=null;
+    closeRoutinePreview();
+    renderRoutineEditor();
+    showToast("Rutina cargada en el borrador — revisá y guardá","ok");
+    return;
+  }
   saveUserRoutine(pendingRoutineImport);
   pendingRoutineImport=null;
   closeRoutinePreview();
