@@ -776,6 +776,7 @@ select option{background:#18181c}
     <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px" id="routine-edit-label">Editar ejercicios</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn wide" onclick="openRoutineImport()" style="font-size:13px">📝 Importar con IA</button>
+      <button class="btn" id="routine-recover-btn" onclick="recoverMainRoutine()" style="font-size:12px;flex-shrink:0;color:var(--teal);border-color:var(--teal)">Recuperar original</button>
       <button class="btn danger" id="routine-reset-btn" onclick="resetRoutine()" style="font-size:12px;flex-shrink:0">Resetear</button>
     </div>
     <div class="mode-tabs" id="routine-day-tabs" style="margin-bottom:12px;overflow-x:auto;flex-wrap:nowrap"></div>
@@ -1581,12 +1582,26 @@ function getUserRoutine(){
   const s=ls("userRoutine",null);return s||JSON.parse(JSON.stringify(ROUTINE_BASE));
 }
 function saveUserRoutine(r){
+  // IMPORTANTE: siempre guarda en la rutina principal, ignorando cualquier override de sesión.
+  // La sesión activa solo afecta la vista de GYM, nunca la rutina almacenada.
   ss("userRoutine",r);syncToCloud("userRoutine",r);
-  // Actualizar también la rutina "main" en savedRoutines para mantener sincronía
   const arr=getSavedRoutines();
-  const idx=currentSessionRoutineId?arr.findIndex(x=>x.id===currentSessionRoutineId):arr.findIndex(x=>x.id==="main");
+  const idx=arr.findIndex(x=>x.id==="main");
   if(idx>=0)arr[idx].data=r; else arr.unshift({id:"main",name:"Mi rutina",data:r});
   saveSavedRoutines(arr);
+}
+function recoverMainRoutine(){
+  if(!confirm("¿Recuperar la rutina original de 5 días? Esto reemplazará la rutina \"Mi rutina\" pero no borra tu historial de ejercicios."))return;
+  const data=JSON.parse(JSON.stringify(ROUTINE_BASE));
+  ss("userRoutine",data);syncToCloud("userRoutine",data);
+  const arr=getSavedRoutines();
+  const idx=arr.findIndex(x=>x.id==="main");
+  if(idx>=0)arr[idx].data=data; else arr.unshift({id:"main",name:"Mi rutina",data});
+  saveSavedRoutines(arr);
+  currentSessionRoutineId=null;
+  renderGym();
+  renderRoutineEditor();
+  showToast("Rutina original recuperada ✓","ok");
 }
 function getRoutine(){const base=getUserRoutine();const c=ls("customExercises",{});const r={};for(const d in base){r[d]={...base[d],exercises:[...base[d].exercises,...(c[d]||[])]};}return r;}
 // CUSTOM FOODS (user despensa)
@@ -3311,7 +3326,9 @@ function renderSessionRoutineSel(){
 }
 function onSessionRoutineChange(){
   const sel=document.getElementById("session-routine-sel");
-  currentSessionRoutineId=sel?.value||null;
+  const v=sel?.value;
+  // "main" = usar rutina por defecto (sin override), equivale a null
+  currentSessionRoutineId=(v&&v!=="main")?v:null;
   renderGymEx();
 }
 function deleteBaseExercise(dayN,ei){
@@ -3322,7 +3339,8 @@ function deleteBaseExercise(dayN,ei){
     return;
   }
   if(!confirm("¿Eliminar este ejercicio de tu rutina base?"))return;
-  const r=getUserRoutine();
+  // Siempre lee de la rutina PRINCIPAL, nunca del override de sesión
+  const r=ls("userRoutine",null)||JSON.parse(JSON.stringify(ROUTINE_BASE));
   if(!r[dayN])return;
   r[dayN].exercises.splice(ei,1);
   saveUserRoutine(r);
