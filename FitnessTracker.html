@@ -849,7 +849,14 @@ select option{background:#18181c}
     <div id="foto-result" style="display:none">
       <div style="font-size:12px;color:var(--text3);margin-bottom:14px;line-height:1.5">Gemini estimó estos valores. Revisalos y editá lo que sea necesario antes de guardar.</div>
       <div class="form-group"><label class="form-label">Plato / alimento</label><input type="text" class="form-input" id="foto-nombre"></div>
-      <div class="form-group"><label class="form-label">Porción estimada (g)</label><input type="number" class="form-input" id="foto-gramos" min="1" oninput="updateFotoPreview()"></div>
+      <!-- Componentes del plato (platos mixtos) -->
+      <div id="foto-componentes" style="display:none;background:var(--surface2);border-radius:var(--r);padding:10px 14px;margin-bottom:10px;font-size:12px"></div>
+      <div class="form-group">
+        <label class="form-label">Porción estimada (g)</label>
+        <input type="number" class="form-input" id="foto-gramos" min="1" oninput="updateFotoPreview()">
+        <!-- Rango de confianza -->
+        <div id="foto-rango" style="display:none;font-size:11px;color:var(--amber);margin-top:4px"></div>
+      </div>
       <div style="background:var(--surface2);border-radius:var(--r);padding:12px 14px;margin-bottom:16px">
         <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px">Macros para esta porción</div>
         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center">
@@ -1565,10 +1572,11 @@ function genId(){return Math.random().toString(36).substr(2,9);}
 function getSavedRoutines(){
   const existing=ls("savedRoutines",[]);
   if(existing.length===0){
-    // Migrar rutina existente (o ROUTINE_BASE) como primer elemento
+    // Migrar solo si ya había una userRoutine guardada (usuario existente pre-migración)
+    // Usuarios nuevos no heredan ROUTINE_BASE — empiezan sin rutina
     const old=ls("userRoutine",null);
-    const data=old||JSON.parse(JSON.stringify(ROUTINE_BASE));
-    const migrated=[{id:"main",name:"Mi rutina",data}];
+    if(!old)return [];
+    const migrated=[{id:"main",name:"Mi rutina",data:old}];
     ss("savedRoutines",migrated);return migrated;
   }
   return existing;
@@ -1579,7 +1587,15 @@ function getUserRoutine(){
     const r=getSavedRoutines().find(r=>r.id===currentSessionRoutineId);
     if(r)return JSON.parse(JSON.stringify(r.data));
   }
-  const s=ls("userRoutine",null);return s||JSON.parse(JSON.stringify(ROUTINE_BASE));
+  // Devuelve null para usuarios nuevos — getRoutine() y renderGym() lo manejan
+  const s=ls("userRoutine",null);return s?JSON.parse(JSON.stringify(s)):null;
+}
+function getRoutine(){
+  const base=getUserRoutine()||{};
+  const c=ls("customExercises",{});
+  const r={};
+  for(const d in base){r[d]={...base[d],exercises:[...base[d].exercises,...(c[d]||[])]};}
+  return r;
 }
 function saveUserRoutine(r){
   // IMPORTANTE: siempre guarda en la rutina principal, ignorando cualquier override de sesión.
@@ -1603,7 +1619,6 @@ function recoverMainRoutine(){
   renderRoutineEditor();
   showToast("Rutina original recuperada ✓","ok");
 }
-function getRoutine(){const base=getUserRoutine();const c=ls("customExercises",{});const r={};for(const d in base){r[d]={...base[d],exercises:[...base[d].exercises,...(c[d]||[])]};}return r;}
 // CUSTOM FOODS (user despensa)
 function getCustomFoods(){return ls("customFoods",[])}
 function saveCustomFoods(arr){ss("customFoods",arr);syncToCloud("customFoods",arr);}
@@ -2215,7 +2230,20 @@ function renderDSSetBlock(s,si,ei,ex){
   return `<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px"><div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Serie ${si+1} · Dropset</div>${dr(s.peso||"",s.reps||"",0)}${dr(drops[0]?.peso||"",drops[0]?.reps||"",1)}${dr(drops[1]?.peso||"",drops[1]?.reps||"",2)}</div>`;
 }
 
-function renderGym(){const di=document.getElementById("gym-date");if(!di.value)di.value=TODAY;const routine=getRoutine();document.getElementById("day-tabs").innerHTML=Object.entries(routine).map(([d,r])=>`<button class="day-tab${+d===currentGymDay?" active":""}" onclick="selectGymDay(${d})" style="${+d===currentGymDay?"background:"+r.color+";border-color:"+r.color+";color:#0e0e10":""}">${r.short}</button>`).join("");renderSessionRoutineSel();renderGymEx();}
+function renderGym(){
+  const di=document.getElementById("gym-date");if(!di.value)di.value=TODAY;
+  const routine=getRoutine();
+  const tabs=document.getElementById("day-tabs");
+  const exList=document.getElementById("gym-ex-list");
+  if(!Object.keys(routine).length){
+    // Usuario sin rutina: mostrar prompt de creación
+    tabs.innerHTML="";
+    if(exList)exList.innerHTML=`<div style="text-align:center;padding:32px 18px;color:var(--text3)"><div style="font-size:32px;margin-bottom:12px">🏋️</div><div style="font-size:15px;font-weight:500;color:var(--text2);margin-bottom:8px">Todavía no tenés una rutina</div><div style="font-size:13px;margin-bottom:20px">Creá tu propia rutina de entrenamiento para empezar a registrar tus series y seguir tu progreso.</div><button class="btn primary wide" onclick="openRoutineModal()">Crear mi rutina</button></div>`;
+    return;
+  }
+  tabs.innerHTML=Object.entries(routine).map(([d,r])=>`<button class="day-tab${+d===currentGymDay?" active":""}" onclick="selectGymDay(${d})" style="${+d===currentGymDay?"background:"+r.color+";border-color:"+r.color+";color:#0e0e10":""}">${r.short}</button>`).join("");
+  renderSessionRoutineSel();renderGymEx();
+}
 function selectGymDay(d){currentGymDay=d;const routine=getRoutine();document.querySelectorAll(".day-tab").forEach((b,i)=>{const isA=i+1===d;b.classList.toggle("active",isA);const c=routine[i+1]?.color||"var(--accent)";b.style.background=isA?c:"";b.style.borderColor=isA?c:"";b.style.color=isA?"#0e0e10":"";});renderGymEx();}
 function renderGymEx(){
   const date=document.getElementById("gym-date")?.value||TODAY,routine=getRoutine(),day=routine[currentGymDay];if(!day)return;
@@ -2612,7 +2640,46 @@ async function searchFoodWithGemini(query){
 }
 
 // ─── FOTO / VISIÓN ────────────────────────────────────────────────
-function openCamera(){ document.getElementById("foto-input").value=""; document.getElementById("foto-input").click(); }
+// ─── CALIBRACIÓN PERSONAL DE FOTO ─────────────────────────────────
+// Guarda el ratio final/estimado por usuario; con 3+ muestras aplica ajuste silencioso
+function getCalibFactor(){
+  const c=ls("photoCalib",{n:0,sum:0});
+  if(c.n<3)return 1; // aún sin datos suficientes
+  const f=c.sum/c.n;
+  return Math.min(2.0,Math.max(0.5,f)); // clamp razonable
+}
+function recordCalibDelta(estimatedG,finalG){
+  if(!estimatedG||!finalG||estimatedG<=0)return;
+  const ratio=finalG/estimatedG;
+  if(ratio<0.2||ratio>5)return; // ignorar outliers extremos
+  const c=ls("photoCalib",{n:0,sum:0});
+  // Media móvil con peso mayor a valores recientes (ventana ~10 muestras)
+  const n=Math.min(c.n+1,10);
+  const sum=(c.n>=10)?(c.sum-c.sum/c.n+ratio):c.sum+ratio;
+  ss("photoCalib",{n,sum});
+}
+let _lastGeminiEstimate=null; // gramos estimados por Gemini antes de edición
+
+// ─── CAMERA TIP (primera vez) ─────────────────────────────────────
+function showCameraTip(callback){
+  if(ls("cameraTipSeen",false)){callback();return;}
+  const el=document.getElementById("camera-tip-overlay");
+  if(!el){callback();return;}
+  el.style.display="flex";
+  el._callback=callback;
+}
+function dismissCameraTip(){
+  ss("cameraTipSeen",true);
+  const el=document.getElementById("camera-tip-overlay");
+  if(el){el.style.display="none";if(el._callback)el._callback();}
+}
+
+function openCamera(){
+  showCameraTip(()=>{
+    document.getElementById("foto-input").value="";
+    document.getElementById("foto-input").click();
+  });
+}
 function openNutritionLabel(){ if(!getGeminiKey()){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;} document.getElementById("label-input").value=""; document.getElementById("label-input").click(); }
 async function onNutritionLabelSelected(input){
   const file=input.files&&input.files[0];if(!file)return;
@@ -2661,7 +2728,37 @@ function onPhotoSelected(input){
 
 async function analyzePhotoWithGemini(base64, mimeType){
   const key = getGeminiKey();
-  const prompt = `Analizá esta foto de comida. Estimá el plato, la porción y los valores nutricionales. Respondé SOLO con JSON válido con estas claves exactas: nombre_plato (string), porcion_gramos (número), calorias_100g (número), proteinas_100g (número), carbohidratos_100g (número), grasas_100g (número). Si no podés identificar comida, devolvé {"error": "no_food"}.`;
+  const calibFactor = getCalibFactor();
+  const prompt = `Sos un nutricionista experto en estimación de porciones a partir de fotos de platos.
+
+INSTRUCCIONES (seguí este orden exacto):
+
+1. REFERENCIAS DE TAMAÑO: Buscá en la imagen cualquier objeto de referencia visible — plato estándar (~24cm), tenedor, cuchara, mano, moneda, botella u otro objeto conocido. Usá eso para calibrar la escala real antes de estimar.
+
+2. RAZONAMIENTO PASO A PASO: Para cada componente del plato, razoná en voz alta: "Este componente ocupa X% del plato/área, eso equivale a aproximadamente Yg porque..." Sé explícito con tu lógica antes de dar el número.
+
+3. COMPONENTES SEPARADOS: Si el plato tiene varios alimentos (proteína, carbohidrato, verdura, salsa), identificalos y estimá cada uno por separado. Luego sumá para el total.
+
+4. RANGO DE CONFIANZA: Para la porción total, dá un rango realista (porcion_min y porcion_max) en vez de un solo número falsamente preciso. El rango debe reflejar tu incertidumbre real (no estreches artificialmente el rango).
+
+5. MACROS: Para la porción total, calculá los macros por 100g como promedio ponderado de los componentes.
+
+Respondé SOLO con JSON válido con exactamente estas claves:
+{
+  "nombre_plato": string,
+  "razonamiento": string (resumen breve del análisis de escala y componentes),
+  "componentes": [{"nombre": string, "gramos": number, "calorias_100g": number, "proteinas_100g": number, "carbohidratos_100g": number, "grasas_100g": number}],
+  "porcion_gramos": number (punto medio del rango),
+  "porcion_min": number,
+  "porcion_max": number,
+  "calorias_100g": number,
+  "proteinas_100g": number,
+  "carbohidratos_100g": number,
+  "grasas_100g": number
+}
+
+Si no podés identificar comida: {"error": "no_food"}`;
+
   try {
     const res = await geminiPost(key,{
       contents:[{parts:[{inlineData:{mimeType,data:base64}},{text:prompt}]}],
@@ -2674,6 +2771,13 @@ async function analyzePhotoWithGemini(base64, mimeType){
     const data = JSON.parse(text);
     if(data.error === "no_food"){ showToast("No pude identificar comida en la foto","err"); return null; }
     if(!data.nombre_plato){ showToast("Respuesta inválida de Gemini","err"); return null; }
+    // Aplicar factor de calibración personal silencioso (si hay suficientes muestras)
+    if(calibFactor !== 1 && data.porcion_gramos){
+      data.porcion_gramos = Math.round(data.porcion_gramos * calibFactor);
+      if(data.porcion_min) data.porcion_min = Math.round(data.porcion_min * calibFactor);
+      if(data.porcion_max) data.porcion_max = Math.round(data.porcion_max * calibFactor);
+    }
+    _lastGeminiEstimate = data.porcion_gramos || null;
     return data;
   } catch(e){ showToast("Error al analizar la foto","err"); console.error(e); return null; }
 }
@@ -2685,6 +2789,20 @@ function showFotoResult(data){
   document.getElementById("foto-prot100").value = data.proteinas_100g || 0;
   document.getElementById("foto-carb100").value = data.carbohidratos_100g || 0;
   document.getElementById("foto-fat100").value = data.grasas_100g || 0;
+  // Rango de confianza
+  const rangoEl = document.getElementById("foto-rango");
+  if(rangoEl && data.porcion_min && data.porcion_max && data.porcion_min !== data.porcion_max){
+    rangoEl.style.display = "block";
+    rangoEl.textContent = `Rango estimado: ${data.porcion_min}–${data.porcion_max}g — editá la porción si lo necesitás`;
+  } else if(rangoEl){ rangoEl.style.display = "none"; }
+  // Componentes del plato
+  const compEl = document.getElementById("foto-componentes");
+  if(compEl && data.componentes && data.componentes.length > 1){
+    compEl.style.display = "block";
+    compEl.innerHTML = `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Componentes identificados</div>` +
+      data.componentes.map(c=>`<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border)"><span style="color:var(--text2)">${c.nombre}</span><span style="font-family:var(--mono);color:var(--accent)">${c.gramos}g</span></div>`).join("") +
+      (data.razonamiento ? `<div style="color:var(--text3);font-style:italic;margin-top:6px;font-size:11px">${data.razonamiento}</div>` : "");
+  } else if(compEl){ compEl.style.display = "none"; }
   document.getElementById("foto-result").style.display = "block";
   updateFotoPreview();
 }
@@ -2716,6 +2834,12 @@ function confirmFotoFood(){
     carb: +((+document.getElementById("foto-carb100").value||0)*f).toFixed(1),
     fat: +((+document.getElementById("foto-fat100").value||0)*f).toFixed(1),
   };
+  // Registrar corrección para calibración personal (silencioso)
+  const finalG = g;
+  if(_lastGeminiEstimate && finalG !== _lastGeminiEstimate){
+    recordCalibDelta(_lastGeminiEstimate, finalG);
+  }
+  _lastGeminiEstimate = null;
   const td = getTodayData(); td.foods.push(item); saveTodayData(td);
   closeFotoModal(); renderHoy(); showToast(nombre+" agregado ✓","ok");
 }
@@ -3597,6 +3721,19 @@ if("serviceWorker" in navigator){
   });
 }
 </script>
+
+<!-- CAMERA TIP OVERLAY -->
+<div id="camera-tip-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(14,14,16,0.85);z-index:900;max-width:430px;margin:0 auto;align-items:flex-end">
+  <div style="background:var(--surface);border-top:2px solid var(--accent);padding:24px 20px 36px;border-radius:var(--r) var(--r) 0 0">
+    <div style="font-size:20px;margin-bottom:8px">📷 Tip para mejor precisión</div>
+    <ul style="font-size:14px;color:var(--text2);line-height:1.7;padding-left:18px;margin:0 0 20px">
+      <li>Acercate al plato (que llene el encuadre)</li>
+      <li>Buena luz — evitá contraluz y sombras fuertes</li>
+      <li>Si podés, dejá un objeto común en el cuadro: un tenedor, una moneda o tu dedo — ayuda a calibrar el tamaño</li>
+    </ul>
+    <button class="btn primary wide" onclick="dismissCameraTip()">Entendido, sacar foto</button>
+  </div>
+</div>
 
 <!-- REST TIMER PANEL -->
 <div id="rest-timer-panel">
