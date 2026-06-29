@@ -329,9 +329,14 @@ select option{background:#18181c}
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
         Foto
       </button>
+      <button onclick="openNutritionLabel()" style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:5px 10px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:5px;font-size:12px;font-family:var(--font)" title="Leer etiqueta nutricional del envase">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="9" y1="7" x2="15" y2="7"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="13" y2="15"/></svg>
+        Etiqueta
+      </button>
     </div>
   </div>
   <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
+  <input type="file" id="label-input" accept="image/*" capture="environment" style="display:none" onchange="onNutritionLabelSelected(this)">
   <div class="food-search-wrap" id="food-search-wrap">
     <div class="search-box">
       <div class="search-top">
@@ -370,7 +375,8 @@ select option{background:#18181c}
       <option value="1">Semana 1</option><option value="2">Semana 2</option>
       <option value="3">Semana 3</option><option value="4">Semana 4</option>
     </select>
-    <button class="btn" style="font-size:12px" onclick="openRoutineEditor()">⚙️ Rutina</button>
+    <select class="wk-sel" id="session-routine-sel" style="display:none;max-width:130px" onchange="onSessionRoutineChange()" title="Rutina para esta sesión"></select>
+    <button class="btn" style="font-size:12px" onclick="openRoutineEditor()">⚙️ Rutinas</button>
     <button class="btn" style="margin-left:auto;font-size:12px" onclick="showAddExModal()">+ Ejercicio</button>
   </div>
   <div class="day-tabs" id="day-tabs"></div>
@@ -478,9 +484,10 @@ select option{background:#18181c}
 
   <div class="prof-sec">
     <div class="form-row" style="margin-bottom:12px">
-      <div class="form-group"><label class="form-label">Peso (kg)</label><input type="number" class="form-input" id="p-peso" step="0.1"></div>
-      <div class="form-group"><label class="form-label">Altura (cm)</label><input type="number" class="form-input" id="p-altura"></div>
+      <div class="form-group"><label class="form-label">Peso (kg)</label><input type="number" class="form-input" id="p-peso" step="0.1" oninput="validatePerfil()"></div>
+      <div class="form-group"><label class="form-label">Altura (cm)</label><input type="number" class="form-input" id="p-altura" oninput="validatePerfil()"></div>
     </div>
+    <div id="p-validation" style="font-size:12px;color:var(--amber);margin:-6px 0 8px;display:none"></div>
     <div class="form-row" style="margin-bottom:12px">
       <div class="form-group"><label class="form-label">Edad</label><input type="number" class="form-input" id="p-edad" min="13" max="120"></div>
       <div class="form-group"><label class="form-label">Sexo</label><select class="form-input form-sel" id="p-sexo"><option value="m">Masculino</option><option value="f">Femenino</option></select></div>
@@ -567,6 +574,7 @@ select option{background:#18181c}
       <input type="number" class="portion-in" id="pm-grams" value="100" min="1" max="5000" oninput="updatePortionPreview()">
       <span style="font-size:13px;color:var(--text3)" id="pm-qty-unit">g</span>
     </div>
+    <div id="pm-total-g" style="font-size:26px;font-weight:700;color:var(--accent);text-align:center;margin:2px 0 10px;min-height:30px;letter-spacing:-0.5px"></div>
 
     <!-- Quick presets -->
     <div class="pm-presets" id="pm-presets"></div>
@@ -729,9 +737,19 @@ select option{background:#18181c}
 <div class="modal-overlay" id="routine-modal">
   <div class="modal">
     <div class="modal-hdr">
-      <div class="modal-title">⚙️ Mi rutina</div>
+      <div class="modal-title">⚙️ Rutinas guardadas</div>
       <button class="modal-close" onclick="closeRoutineModal()">×</button>
     </div>
+    <!-- Biblioteca de rutinas -->
+    <div id="routine-library" style="margin-bottom:12px"></div>
+    <!-- Guardar rutina actual con nombre -->
+    <div style="display:flex;gap:6px;margin-bottom:14px">
+      <input type="text" class="form-input" id="routine-save-name" placeholder="Nombre (ej: Rutina A, Viaje...)" style="flex:1;font-size:13px">
+      <button class="btn primary" style="font-size:12px;white-space:nowrap" onclick="saveRoutineAs()">Guardar como nueva</button>
+    </div>
+    <div style="height:1px;background:var(--border);margin-bottom:14px"></div>
+    <!-- Editor de ejercicios -->
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px" id="routine-edit-label">Editar ejercicios</div>
     <div style="display:flex;gap:8px;margin-bottom:14px">
       <button class="btn wide" onclick="openRoutineImport()" style="font-size:13px">📝 Importar con IA</button>
       <button class="btn danger" onclick="resetRoutine()" style="font-size:12px;flex-shrink:0">Resetear</button>
@@ -856,7 +874,7 @@ const firebaseConfig = {
   messagingSenderId: "143264606965",
   appId: "1:143264606965:web:7cf0032b6a521f8cd473bc"
 };
-const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory"];
+const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines"];
 let fbAuth = null, fbDb = null, fbUser = null;
 
 function initFirebase(){
@@ -1509,8 +1527,36 @@ function saveDayData(date,data){
 }
 function getTodayData(){return getDayData(selectedHoyDate)}
 function saveTodayData(data){saveDayData(selectedHoyDate,data)}
-function getUserRoutine(){const s=ls("userRoutine",null);return s||JSON.parse(JSON.stringify(ROUTINE_BASE));}
-function saveUserRoutine(r){ss("userRoutine",r);syncToCloud("userRoutine",r);}
+// ─── MÚLTIPLES RUTINAS ────────────────────────────────────────────
+let currentSessionRoutineId=null; // rutina seleccionada para la sesión (no persiste)
+function genId(){return Math.random().toString(36).substr(2,9);}
+function getSavedRoutines(){
+  const existing=ls("savedRoutines",[]);
+  if(existing.length===0){
+    // Migrar rutina existente (o ROUTINE_BASE) como primer elemento
+    const old=ls("userRoutine",null);
+    const data=old||JSON.parse(JSON.stringify(ROUTINE_BASE));
+    const migrated=[{id:"main",name:"Mi rutina",data}];
+    ss("savedRoutines",migrated);return migrated;
+  }
+  return existing;
+}
+function saveSavedRoutines(arr){ss("savedRoutines",arr);syncToCloud("savedRoutines",arr);}
+function getUserRoutine(){
+  if(currentSessionRoutineId){
+    const r=getSavedRoutines().find(r=>r.id===currentSessionRoutineId);
+    if(r)return JSON.parse(JSON.stringify(r.data));
+  }
+  const s=ls("userRoutine",null);return s||JSON.parse(JSON.stringify(ROUTINE_BASE));
+}
+function saveUserRoutine(r){
+  ss("userRoutine",r);syncToCloud("userRoutine",r);
+  // Actualizar también la rutina "main" en savedRoutines para mantener sincronía
+  const arr=getSavedRoutines();
+  const idx=currentSessionRoutineId?arr.findIndex(x=>x.id===currentSessionRoutineId):arr.findIndex(x=>x.id==="main");
+  if(idx>=0)arr[idx].data=r; else arr.unshift({id:"main",name:"Mi rutina",data:r});
+  saveSavedRoutines(arr);
+}
 function getRoutine(){const base=getUserRoutine();const c=ls("customExercises",{});const r={};for(const d in base){r[d]={...base[d],exercises:[...base[d].exercises,...(c[d]||[])]};}return r;}
 // CUSTOM FOODS (user despensa)
 function getCustomFoods(){return ls("customFoods",[])}
@@ -1645,6 +1691,10 @@ function openPortionModal(item){
     if(defUnit.gpU) item._gpU = defUnit.gpU;
   }
 
+  // Override with last used unit for this food (if in allowed list)
+  const _savedUnit=localStorage.getItem("lastUnit_"+normalizeStr(item.n));
+  if(_savedUnit && visibleUnits.some(u=>u.id===_savedUnit)) currentPortionUnit=_savedUnit;
+
   // Set initial qty
   document.getElementById("pm-grams").value = currentPortionUnit==="g" ? 100 : 1;
 
@@ -1732,6 +1782,8 @@ function updatePortionPreview(){
   } else if(equiv){
     equiv.textContent="";
   }
+  const tgEl=document.getElementById("pm-total-g");
+  if(tgEl) tgEl.textContent=currentPortionUnit==="g"?"":"= "+Math.round(totalG)+"g";
   // Micronutrients (only for OFT barcode foods)
   const microsEl = document.getElementById("pm-micros");
   if(microsEl){
@@ -1770,7 +1822,11 @@ function confirmAddFood(){
     carb:+(currentFoodItem.ch*f).toFixed(1),
     fat:+(currentFoodItem.g*f).toFixed(1)
   };
+  // Recordar la unidad usada para este alimento
+  localStorage.setItem("lastUnit_"+normalizeStr(currentFoodItem.n), currentPortionUnit);
   const td=getTodayData();td.foods.push(item);saveTodayData(td);closePortionModal();renderHoy();showToast("Agregado ✓","ok");
+  // Mantener foco en búsqueda para agregar varios alimentos seguidos
+  setTimeout(()=>{const s=document.getElementById("food-search");if(s){s.value="";s.focus();}},300);
 }
 
 // ─── NEW FOOD MODAL ───────────────────────────────────────────────
@@ -2103,7 +2159,7 @@ function setIsDS(s){ return s && (s.ds===true || (s.ds!==false && !!s.drops)); }
 
 function renderNormalSetRow(s,si,ei,ex){
   const t=ex.type||"isolation";
-  return `<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:11px;color:var(--text3)">reps</span><button onclick="toggleSetDS(${ei},${si})" title="Marcar como dropset" style="flex-shrink:0;background:none;border:1px solid var(--border2);border-radius:4px;padding:2px 6px;color:var(--text3);font-size:10px;cursor:pointer;font-family:var(--mono);line-height:1.4">DS</button></div>`;
+  return `<div class="set-row"><span class="set-num">${si+1}</span><input type="number" class="set-in" placeholder="kg" min="0" step="0.5" value="${s.peso||""}" id="ex${ei}-s${si}-p" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:13px;color:var(--text3)">×</span><input type="number" class="set-in" placeholder="reps" min="0" value="${s.reps||""}" id="ex${ei}-s${si}-r" oninput="liveExKcal(${ei},${ex.sets},'${t}')"><span style="font-size:11px;color:var(--text3)">reps</span><input type="number" class="set-in" placeholder="RPE" min="1" max="10" step="0.5" value="${s.rpe||""}" id="ex${ei}-s${si}-rpe" style="width:44px;color:var(--purple);opacity:0.85" title="Esfuerzo percibido (1–10, opcional)"><button onclick="toggleSetDS(${ei},${si})" title="Marcar como dropset" style="flex-shrink:0;background:none;border:1px solid var(--border2);border-radius:4px;padding:2px 6px;color:var(--text3);font-size:10px;cursor:pointer;font-family:var(--mono);line-height:1.4">DS</button></div>`;
 }
 
 function renderDSSetBlock(s,si,ei,ex){
@@ -2113,13 +2169,13 @@ function renderDSSetBlock(s,si,ei,ex){
   return `<div style="background:var(--surface2);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:6px"><div style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:6px">Serie ${si+1} · Dropset</div>${dr(s.peso||"",s.reps||"",0)}${dr(drops[0]?.peso||"",drops[0]?.reps||"",1)}${dr(drops[1]?.peso||"",drops[1]?.reps||"",2)}</div>`;
 }
 
-function renderGym(){const di=document.getElementById("gym-date");if(!di.value)di.value=TODAY;const routine=getRoutine();document.getElementById("day-tabs").innerHTML=Object.entries(routine).map(([d,r])=>`<button class="day-tab${+d===currentGymDay?" active":""}" onclick="selectGymDay(${d})" style="${+d===currentGymDay?"background:"+r.color+";border-color:"+r.color+";color:#0e0e10":""}">${r.short}</button>`).join("");renderGymEx();}
+function renderGym(){const di=document.getElementById("gym-date");if(!di.value)di.value=TODAY;const routine=getRoutine();document.getElementById("day-tabs").innerHTML=Object.entries(routine).map(([d,r])=>`<button class="day-tab${+d===currentGymDay?" active":""}" onclick="selectGymDay(${d})" style="${+d===currentGymDay?"background:"+r.color+";border-color:"+r.color+";color:#0e0e10":""}">${r.short}</button>`).join("");renderSessionRoutineSel();renderGymEx();}
 function selectGymDay(d){currentGymDay=d;const routine=getRoutine();document.querySelectorAll(".day-tab").forEach((b,i)=>{const isA=i+1===d;b.classList.toggle("active",isA);const c=routine[i+1]?.color||"var(--accent)";b.style.background=isA?c:"";b.style.borderColor=isA?c:"";b.style.color=isA?"#0e0e10":"";});renderGymEx();}
 function renderGymEx(){
   const date=document.getElementById("gym-date")?.value||TODAY,routine=getRoutine(),day=routine[currentGymDay];if(!day)return;
   const allDays=getDays(),saved=(allDays[date]?.gym||{})[currentGymDay]||{},p=getProfile();
   document.getElementById("gym-ex-list").innerHTML=day.exercises.map((ex,ei)=>{
-    const sets=saved[ei]||Array(ex.sets).fill(null).map(()=>({peso:"",reps:"",ds:false}));
+    const sets=saved[ei]||getLastExSets(currentGymDay,ei,date,ex.sets);
     const prev=getPrevBest(currentGymDay,ei,date),exKcal=exerciseKcal(ex,sets,p.peso);
     const baseCount=getUserRoutine()[currentGymDay]?.exercises?.length||0;
     const isCustom=ei>=baseCount;
@@ -2136,6 +2192,18 @@ function liveExKcal(ei,numSets,type){
   let t=0;for(const s of allSets){const r=+s.reps||0;if(!r)continue;t+=met*p.peso*((r*3/60+0.75)/60);}
   const el=document.getElementById("exkcal-"+ei);if(el){el.textContent="≈ "+Math.round(t)+" kcal quemadas";el.style.display=t>0?"block":"none";}
 }
+function getLastExSets(dayN,exIdx,currentDate,numSets){
+  const allDays=getDays();
+  for(const d of Object.keys(allDays).filter(d=>d<currentDate).sort().reverse()){
+    const s=allDays[d]?.gym?.[dayN]?.[exIdx];
+    if(s&&s.length){
+      const cloned=s.map(set=>({...set,rpe:null}));
+      while(cloned.length<numSets)cloned.push({peso:cloned[0]?.peso||"",reps:cloned[0]?.reps||"",ds:false});
+      return cloned.slice(0,numSets);
+    }
+  }
+  return Array(numSets).fill(null).map(()=>({peso:"",reps:"",ds:false}));
+}
 function getPrevBest(dayN,exIdx,currentDate){const allDays=getDays();for(const d of Object.keys(allDays).filter(d=>d<currentDate).sort().reverse()){const g=allDays[d]?.gym;if(g&&g[dayN]&&g[dayN][exIdx]){const sets=(g[dayN][exIdx]||[]).filter(s=>s.peso&&s.reps);if(sets.length){const best=sets.reduce((a,s)=>(+s.peso)>(+a.peso)?s:a,sets[0]);return best.peso+"kg × "+best.reps+" reps";}}}return null;}
 function saveExSets(ei,numSets,date){
   const sets=[];
@@ -2143,11 +2211,22 @@ function saveExSets(ei,numSets,date){
     if(document.getElementById(`ex${ei}-s${si}-d0-p`)){
       const g=di=>({peso:document.getElementById(`ex${ei}-s${si}-d${di}-p`)?.value??"",reps:document.getElementById(`ex${ei}-s${si}-d${di}-r`)?.value??""});
       const d0=g(0);sets.push({peso:d0.peso,reps:d0.reps,ds:true,drops:[g(1),g(2)]});
-    }else{sets.push({peso:document.getElementById(`ex${ei}-s${si}-p`)?.value??"",reps:document.getElementById(`ex${ei}-s${si}-r`)?.value??"",ds:false});}
+    }else{const rpeVal=document.getElementById(`ex${ei}-s${si}-rpe`)?.value;sets.push({peso:document.getElementById(`ex${ei}-s${si}-p`)?.value??"",reps:document.getElementById(`ex${ei}-s${si}-r`)?.value??"",rpe:rpeVal?+rpeVal:null,ds:false});}
   }
   const allDays=getDays();if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90};if(!allDays[date].gym)allDays[date].gym={};if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};allDays[date].gym[currentGymDay][ei]=sets;ss("days",allDays);syncToCloud("days",allDays);const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
 }
-function saveAllSets(numEx,date){const day=getRoutine()[currentGymDay];for(let ei=0;ei<numEx;ei++)saveExSets(ei,day.exercises[ei].sets,date);updateLeaderboard();showToast("Sesión guardada","ok");}
+function saveAllSets(numEx,date){
+  const day=getRoutine()[currentGymDay];
+  for(let ei=0;ei<numEx;ei++)saveExSets(ei,day.exercises[ei].sets,date);
+  // Registrar qué rutina se usó en esta sesión
+  if(currentSessionRoutineId){
+    const allDays=getDays();
+    if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
+    allDays[date].gymRoutineId=currentSessionRoutineId;
+    ss("days",allDays);syncToCloud("days",allDays);
+  }
+  updateLeaderboard();showToast("Sesión guardada","ok");
+}
 function showAddExModal(){document.getElementById("add-ex-modal").classList.add("show");document.getElementById("new-ex-day").value=currentGymDay;}
 function closeAddExModal(){document.getElementById("add-ex-modal").classList.remove("show");}
 document.getElementById("add-ex-modal").addEventListener("click",function(e){if(e.target===this)closeAddExModal();});
@@ -2418,6 +2497,31 @@ async function searchFoodWithGemini(query){
 
 // ─── FOTO / VISIÓN ────────────────────────────────────────────────
 function openCamera(){ document.getElementById("foto-input").value=""; document.getElementById("foto-input").click(); }
+function openNutritionLabel(){ if(!getGeminiKey()){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;} document.getElementById("label-input").value=""; document.getElementById("label-input").click(); }
+async function onNutritionLabelSelected(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const reader=new FileReader();
+  reader.onload=async function(e){
+    const b64=e.target.result.split(",")[1],mime=file.type||"image/jpeg";
+    document.getElementById("foto-modal").classList.add("show");
+    document.getElementById("foto-loading").style.display="block";
+    document.getElementById("foto-result").style.display="none";
+    const prompt=`Analizá esta foto de una tabla de información nutricional impresa en un envase. Extraé los valores nutricionales y convertí TODO a base 100g (si los valores están por porción, hacé la conversión matemáticamente usando el tamaño de porción declarado). Respondé SOLO con JSON válido con estas claves exactas: nombre_plato (string, nombre del producto), porcion_gramos (número, siempre 100), calorias_100g (número), proteinas_100g (número), carbohidratos_100g (número), grasas_100g (número). Si no podés leer la etiqueta devolvé {"error":"no_label"}.`;
+    try{
+      const key=getGeminiKey();
+      const res=await geminiPost(key,{contents:[{parts:[{inlineData:{mimeType:mime,data:b64}},{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
+      document.getElementById("foto-loading").style.display="none";
+      if(!res||!res.ok){showToast("Error al analizar la etiqueta","err");document.getElementById("foto-modal").classList.remove("show");return;}
+      const json=await res.json();
+      const text=json?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if(!text){showToast("Gemini no respondió","err");document.getElementById("foto-modal").classList.remove("show");return;}
+      const data=JSON.parse(text);
+      if(data.error==="no_label"){showToast("No pude leer la etiqueta nutricional","err");document.getElementById("foto-modal").classList.remove("show");return;}
+      showFotoResult(data);
+    }catch(err){document.getElementById("foto-loading").style.display="none";document.getElementById("foto-modal").classList.remove("show");showToast("Error al procesar la imagen","err");console.error(err);}
+  };
+  reader.readAsDataURL(file);
+}
 
 function onPhotoSelected(input){
   const file = input.files && input.files[0];
@@ -2528,6 +2632,13 @@ function saveProfile(){
     ss("weightHistory",wh);syncToCloud("weightHistory",wh);
   }
   showMacrosResult();renderWeightChart();showToast("Perfil guardado","ok");
+}
+function validatePerfil(){
+  const peso=+document.getElementById("p-peso").value,altura=+document.getElementById("p-altura").value;
+  const el=document.getElementById("p-validation"),msgs=[];
+  if(peso&&(peso<30||peso>300))msgs.push("Peso fuera de rango (30–300 kg)");
+  if(altura&&(altura<100||altura>250))msgs.push("Altura fuera de rango (100–250 cm)");
+  if(el){el.textContent=msgs.join(" · ");el.style.display=msgs.length?"block":"none";}
 }
 function showMacrosResult(){const p=getProfile(),bmr=Math.round(calcBMR(p)),tdee=Math.round(bmr*p.act),target=p.obj==="deficit"?tdee-400:p.obj==="surplus"?tdee+200:tdee,prot=Math.round(p.peso*2.2),fat=Math.round(target*0.25/9),carb=Math.max(0,Math.round((target-prot*4-fat*9)/4));const objL={deficit:"Perder grasa",recomp:"Recomposición",surplus:"Ganar músculo"};document.getElementById("macros-result").innerHTML=`<div class="mr-title">Macros base (sin actividad extra)</div><div class="mr-row"><span class="mr-name">Objetivo</span><span class="mr-val" style="font-size:13px;color:var(--accent)">${objL[p.obj]}</span></div><div class="mr-row"><span class="mr-name">BMR</span><span class="mr-val">${bmr} kcal</span></div><div class="mr-row"><span class="mr-name">TDEE</span><span class="mr-val">${tdee} kcal</span></div><div class="mr-row"><span class="mr-name">Proteínas</span><span class="mr-val" style="color:var(--teal)">${prot}g</span></div><div class="mr-row"><span class="mr-name">Carbohidratos</span><span class="mr-val" style="color:var(--purple)">${carb}g</span></div><div class="mr-row"><span class="mr-name">Grasas</span><span class="mr-val" style="color:var(--amber)">${fat}g</span></div><div style="padding:10px 14px;font-size:11px;color:var(--text3)">La meta real se ajusta cada día según pasos, gym y boxeo.</div>`;}
 
@@ -2969,13 +3080,71 @@ function openRoutineEditor(){
   document.getElementById("routine-modal").classList.add("show");
 }
 function closeRoutineModal(){document.getElementById("routine-modal").classList.remove("show");}
+function renderRoutineLibrary(){
+  const routines=getSavedRoutines();
+  const lib=document.getElementById("routine-library");
+  if(!lib)return;
+  if(!routines.length){lib.innerHTML="";return;}
+  lib.innerHTML=routines.map(r=>{
+    const isActive=r.id===(currentSessionRoutineId||"main");
+    return`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:9px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;${isActive?"border:1px solid var(--accent)":"border:1px solid transparent"}"><div style="min-width:0;flex:1"><div style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.name}</div>${isActive?`<div style="font-size:10px;color:var(--accent);margin-top:2px">● Activa en esta sesión</div>`:""}</div><div style="display:flex;gap:6px;flex-shrink:0"><button class="btn" style="font-size:11px;padding:3px 8px" onclick="useRoutineInSession('${r.id}')">${isActive?"✓ Usando":"Usar"}</button><button class="btn danger" style="font-size:11px;padding:3px 8px" onclick="deleteSavedRoutine('${r.id}')">✕</button></div></div>`;
+  }).join("");
+}
 function renderRoutineEditor(){
+  renderRoutineLibrary();
   const r=getUserRoutine();
+  const label=document.getElementById("routine-edit-label");
+  if(label){
+    const name=currentSessionRoutineId?getSavedRoutines().find(x=>x.id===currentSessionRoutineId)?.name||"rutina activa":"Mi rutina";
+    label.textContent="Editar ejercicios · "+name;
+  }
   const tabs=Object.entries(r).map(([d,day])=>`<button class="mode-tab${+d===currentRoutineEditorDay?" active":""}" onclick="currentRoutineEditorDay=${d};renderRoutineEditor()">${day.short}</button>`).join("");
   document.getElementById("routine-day-tabs").innerHTML=tabs;
   const day=r[currentRoutineEditorDay];
   if(!day){document.getElementById("routine-ex-list").innerHTML="";return;}
   document.getElementById("routine-ex-list").innerHTML=day.exercises.length?day.exercises.map((ex,i)=>`<div style="background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center"><div><div style="font-size:13px;font-weight:500">${ex.name}</div><div style="font-size:11px;color:var(--text3)">${ex.muscle} · ${ex.schema}</div></div><button class="btn danger" style="font-size:12px;padding:4px 10px" onclick="deleteBaseExercise(${currentRoutineEditorDay},${i})">✕</button></div>`).join(""):`<div style="padding:16px;text-align:center;font-size:13px;color:var(--text3)">No hay ejercicios en este día.</div>`;
+}
+function saveRoutineAs(){
+  const name=(document.getElementById("routine-save-name")?.value||"").trim();
+  if(!name){showToast("Ingresá un nombre para la rutina","err");return;}
+  const arr=getSavedRoutines();
+  if(arr.find(r=>r.name===name)){showToast("Ya existe una rutina con ese nombre","err");return;}
+  const data=getUserRoutine();
+  arr.push({id:genId(),name,data});
+  saveSavedRoutines(arr);
+  document.getElementById("routine-save-name").value="";
+  renderRoutineEditor();
+  renderSessionRoutineSel();
+  showToast("Rutina '"+name+"' guardada","ok");
+}
+function useRoutineInSession(id){
+  currentSessionRoutineId=id;
+  renderRoutineEditor();
+  renderSessionRoutineSel();
+  renderGymEx();
+}
+function deleteSavedRoutine(id){
+  const arr=getSavedRoutines();
+  if(arr.length<=1){showToast("No podés eliminar la única rutina","err");return;}
+  if(!confirm("¿Eliminar esta rutina?"))return;
+  const newArr=arr.filter(r=>r.id!==id);
+  saveSavedRoutines(newArr);
+  if(currentSessionRoutineId===id)currentSessionRoutineId=null;
+  renderRoutineEditor();
+  renderSessionRoutineSel();
+}
+function renderSessionRoutineSel(){
+  const routines=getSavedRoutines();
+  const sel=document.getElementById("session-routine-sel");
+  if(!sel)return;
+  if(routines.length<2){sel.style.display="none";return;}
+  sel.style.display="";
+  sel.innerHTML=routines.map(r=>`<option value="${r.id}"${r.id===(currentSessionRoutineId||"main")?" selected":""}>${r.name}</option>`).join("");
+}
+function onSessionRoutineChange(){
+  const sel=document.getElementById("session-routine-sel");
+  currentSessionRoutineId=sel?.value||null;
+  renderGymEx();
 }
 function deleteBaseExercise(dayN,ei){
   if(!confirm("¿Eliminar este ejercicio de tu rutina base?"))return;
