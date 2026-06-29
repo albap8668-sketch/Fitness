@@ -792,11 +792,11 @@ select option{background:#18181c}
       <div class="modal-title">📝 Importar rutina con IA</div>
       <button class="modal-close" onclick="closeRoutineImport()">×</button>
     </div>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Pegá el texto de tu rutina o sacá una foto. Gemini la interpreta — vas a poder revisar y corregir antes de guardar.</div>
-    <textarea id="routine-import-text" class="form-input" rows="7" placeholder="Ej:&#10;Lunes - Pecho: Press banco 4x8, Aperturas 3x12&#10;Martes - Espalda: Remo 4x8, Dominadas 3x10" style="resize:vertical;width:100%;margin-bottom:10px;font-size:13px"></textarea>
-    <button class="btn wide" onclick="document.getElementById('routine-photo-input').click()" style="margin-bottom:12px">📷 O subir foto de la rutina</button>
-    <input type="file" id="routine-photo-input" accept="image/*" capture="environment" style="display:none" onchange="onRoutinePhotoSelected(this)">
-    <div id="routine-photo-preview" style="display:none;font-size:12px;color:var(--teal);margin-bottom:10px">📷 Foto cargada</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:12px">Pegá el texto de tu rutina, o subí un archivo — imagen, PDF, Excel o CSV. Gemini lo interpreta y podés revisar antes de guardar.</div>
+    <textarea id="routine-import-text" class="form-input" rows="5" placeholder="Ej:&#10;Lunes - Pecho: Press banco 4x8, Aperturas 3x12&#10;Martes - Espalda: Remo 4x8, Dominadas 3x10" style="resize:vertical;width:100%;margin-bottom:10px;font-size:13px"></textarea>
+    <button class="btn wide" onclick="document.getElementById('routine-file-input').click()" style="margin-bottom:8px">📎 O subir archivo (imagen, PDF, Excel, CSV)</button>
+    <input type="file" id="routine-file-input" accept="image/*,.pdf,.csv,.xlsx,.xls,.ods,text/csv,text/plain" style="display:none" onchange="onRoutineFileSelected(this)">
+    <div id="routine-file-preview" style="display:none;font-size:12px;color:var(--teal);margin-bottom:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
     <button class="btn primary wide" id="routine-import-btn" onclick="parseRoutineWithGemini()">Interpretar con Gemini</button>
   </div>
 </div>
@@ -3313,7 +3313,7 @@ async function onLabelPhotoSelected(input){
 }
 
 // ─── EDITOR DE RUTINA ─────────────────────────────────────────────
-let currentRoutineEditorDay=1,pendingRoutineImport=null,routineImportB64=null,routineImportMime=null;
+let currentRoutineEditorDay=1,pendingRoutineImport=null,routineImportB64=null,routineImportMime=null,routineImportFileText=null,routineImportFileImages=null;
 function openRoutineEditor(){
   currentRoutineEditorDay=currentGymDay;
   renderRoutineEditor();
@@ -3491,28 +3491,135 @@ function resetRoutine(){
 }
 function openRoutineImport(){
   document.getElementById("routine-import-text").value="";
-  document.getElementById("routine-photo-preview").style.display="none";
-  routineImportB64=null;routineImportMime=null;
+  const prev=document.getElementById("routine-file-preview");
+  if(prev){prev.style.display="none";prev.textContent="";}
+  routineImportB64=null;routineImportMime=null;routineImportFileText=null;routineImportFileImages=null;
   document.getElementById("routine-import-modal").classList.add("show");
 }
 function closeRoutineImport(){document.getElementById("routine-import-modal").classList.remove("show");}
-function onRoutinePhotoSelected(input){
-  const file=input.files&&input.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=function(e){routineImportB64=e.target.result.split(",")[1];routineImportMime=file.type||"image/jpeg";document.getElementById("routine-photo-preview").style.display="block";};
-  reader.readAsDataURL(file);
+
+// ─── CARGA DE ARCHIVOS DE RUTINA ──────────────────────────────────
+function _loadScript(src){
+  return new Promise((resolve,reject)=>{
+    if(document.querySelector(`script[src="${src}"]`)){resolve();return;}
+    const s=document.createElement("script");s.src=src;
+    s.onload=resolve;s.onerror=()=>reject(new Error("No se pudo cargar: "+src));
+    document.head.appendChild(s);
+  });
 }
+function _parseCSVText(csv){
+  return csv.split(/\r?\n/).filter(r=>r.trim())
+    .map(r=>r.split(/[,;|\t]/).map(c=>c.trim().replace(/^["']|["']$/g,"")).join("\t"))
+    .join("\n");
+}
+async function _extractExcelContent(file){
+  await _loadScript("https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js");
+  const buf=await file.arrayBuffer();
+  const wb=window.XLSX.read(buf,{type:"array"});
+  return wb.SheetNames.map(n=>`[Hoja: ${n}]\n${window.XLSX.utils.sheet_to_csv(wb.Sheets[n])}`).join("\n\n");
+}
+async function _extractPDFContent(file){
+  await _loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js");
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  const buf=await file.arrayBuffer();
+  let pdf;
+  try{pdf=await window.pdfjsLib.getDocument({data:buf}).promise;}
+  catch(e){
+    if(e.name==="PasswordException")throw new Error("El PDF está protegido con contraseña — desbloquealo antes de subir");
+    throw new Error("No se pudo abrir el PDF (¿archivo corrupto?)");
+  }
+  // Intentar extraer texto
+  let text="";
+  for(let i=1;i<=pdf.numPages;i++){
+    const page=await pdf.getPage(i);
+    const c=await page.getTextContent();
+    text+=c.items.map(s=>s.str).join(" ").trim()+"\n";
+  }
+  if(text.trim().length>=50)return{type:"text",content:text.trim()};
+  // PDF escaneado: renderizar páginas como imágenes (máx 4)
+  const pages=[];
+  for(let i=1;i<=Math.min(pdf.numPages,4);i++){
+    const page=await pdf.getPage(i);
+    const vp=page.getViewport({scale:1.5});
+    const canvas=document.createElement("canvas");
+    canvas.width=vp.width;canvas.height=vp.height;
+    await page.render({canvasContext:canvas.getContext("2d"),viewport:vp}).promise;
+    pages.push({b64:canvas.toDataURL("image/jpeg",0.82).split(",")[1],mime:"image/jpeg"});
+  }
+  return{type:"images",pages};
+}
+async function onRoutineFileSelected(input){
+  const file=input.files&&input.files[0];if(!file)return;
+  const ext=file.name.split(".").pop().toLowerCase();
+  const mime=file.type||"";
+  const prev=document.getElementById("routine-file-preview");
+  const setPreview=(txt,color)=>{prev.style.display="block";prev.textContent=txt;prev.style.color=color||"var(--teal)";};
+  // Reset
+  routineImportB64=null;routineImportMime=null;routineImportFileText=null;routineImportFileImages=null;
+  if(mime.startsWith("image/")){
+    const reader=new FileReader();
+    reader.onload=e=>{routineImportB64=e.target.result.split(",")[1];routineImportMime=mime;setPreview("📷 "+file.name);};
+    reader.readAsDataURL(file);
+  }else if(mime==="application/pdf"||ext==="pdf"){
+    setPreview("📄 Procesando PDF...","var(--amber)");
+    try{
+      const result=await _extractPDFContent(file);
+      if(result.type==="text"){
+        routineImportFileText=result.content;
+        setPreview(`📄 ${file.name} · ${result.content.length} caracteres extraídos`);
+      }else{
+        routineImportFileImages=result.pages;
+        setPreview(`📄 ${file.name} · PDF escaneado (${result.pages.length} pág.)`);
+      }
+    }catch(e){
+      prev.style.display="none";input.value="";
+      showToast(e.message||"No se pudo leer el PDF","err");
+    }
+  }else if(["xlsx","xls","ods"].includes(ext)||mime.includes("spreadsheet")||mime.includes("excel")){
+    setPreview("📊 Procesando Excel...","var(--amber)");
+    try{
+      routineImportFileText=await _extractExcelContent(file);
+      setPreview("📊 "+file.name);
+    }catch(e){
+      prev.style.display="none";input.value="";
+      showToast("No se pudo leer el Excel — ¿archivo corrupto?","err");
+    }
+  }else if(ext==="csv"||mime==="text/csv"||mime==="text/plain"){
+    const reader=new FileReader();
+    reader.onload=e=>{routineImportFileText=_parseCSVText(e.target.result);setPreview("📋 "+file.name);};
+    reader.onerror=()=>showToast("No se pudo leer el CSV","err");
+    reader.readAsText(file);
+  }else{
+    showToast("Formato no soportado — usá imagen, PDF, Excel o CSV","err");
+    input.value="";
+  }
+}
+
 async function parseRoutineWithGemini(){
   if(!getGeminiKey()){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
   const text=document.getElementById("routine-import-text").value.trim();
-  if(!text&&!routineImportB64){showToast("Pegá texto o subí una foto de la rutina","err");return;}
+  const hasInput=text||routineImportB64||routineImportFileText||routineImportFileImages;
+  if(!hasInput){showToast("Pegá texto o subí un archivo de la rutina","err");return;}
   const btn=document.getElementById("routine-import-btn");
   btn.disabled=true;btn.textContent="Interpretando...";
   const prompt=`Parsea esta rutina de gym y devuelve un JSON con esta estructura exacta: {"1":{"label":"Día 1 - Descripción","short":"Día 1","color":"#ff5e5e","exercises":[{"name":"Nombre ejercicio","muscle":"Grupo muscular","schema":"3x10-12","sets":3,"type":"compound"}]},...}. Los días van del 1 al N según lo que veas. Tipos: compound, isolation, bodyweight. Colores sugeridos: #ff5e5e #ffc947 #c8f564 #64b5f6 #b39ddb. SOLO el JSON, sin texto extra.`;
-  const parts=routineImportB64?[{inlineData:{mimeType:routineImportMime,data:routineImportB64}},{text:prompt+"\n\nTexto adicional: "+(text||"(solo foto)")}]:[{text:prompt+"\n\nRutina:\n"+text}];
+  let parts;
+  if(routineImportFileImages){
+    // PDF escaneado: múltiples imágenes + prompt
+    parts=[...routineImportFileImages.map(p=>({inlineData:{mimeType:p.mime,data:p.b64}})),
+           {text:prompt+"\n\nTexto adicional del usuario: "+(text||"(solo imágenes del PDF)")}];
+  }else if(routineImportB64){
+    // Imagen subida o foto
+    parts=[{inlineData:{mimeType:routineImportMime,data:routineImportB64}},
+           {text:prompt+"\n\nTexto adicional: "+(text||"(solo imagen)")}];
+  }else{
+    // Texto: manual + PDF con texto + Excel/CSV
+    const combined=[text,routineImportFileText].filter(Boolean).join("\n\n");
+    parts=[{text:prompt+"\n\nRutina:\n"+combined}];
+  }
   const res=await geminiPost(getGeminiKey(),{contents:[{parts}],generationConfig:{responseMimeType:"application/json"}});
   btn.disabled=false;btn.textContent="Interpretar con Gemini";
-  if(!res||!res.ok){showToast("Error de Gemini","err");return;}
+  if(!res||!res.ok){showToast(res?.status===503||res?.status===429?"Demasiadas consultas, esperá unos segundos":"Error de Gemini","err");return;}
   const json=await res.json();
   const raw=json?.candidates?.[0]?.content?.parts?.[0]?.text;
   if(!raw){showToast("Gemini no respondió","err");return;}
@@ -3520,7 +3627,7 @@ async function parseRoutineWithGemini(){
     pendingRoutineImport=JSON.parse(raw);
     closeRoutineImport();
     showRoutinePreview();
-  }catch{showToast("No se pudo interpretar la rutina — revisá el texto","err");}
+  }catch{showToast("No se pudo interpretar la rutina — revisá el contenido del archivo","err");}
 }
 function showRoutinePreview(){
   const r=pendingRoutineImport;if(!r)return;
