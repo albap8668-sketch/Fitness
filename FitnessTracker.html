@@ -101,6 +101,7 @@ body{height:100%;overflow:hidden;font-family:var(--font);background:var(--bg);co
 .sri-kcal{font-size:15px;font-weight:500;font-family:var(--mono);color:var(--text2)}
 .sri-badge{font-size:10px;color:var(--accent);background:var(--accent-dim);padding:1px 6px;border-radius:10px;margin-top:2px;display:inline-block}
 .sri-badge.custom{color:var(--purple);background:var(--purple-dim)}
+.sri-badge.shared{color:var(--teal);background:rgba(45,212,191,0.12)}
 .search-no-result{padding:14px 14px 8px;display:flex;flex-direction:column;gap:8px}
 .search-no-result p{font-size:13px;color:var(--text3)}
 .add-new-btn{background:var(--accent-dim);border:1px solid rgba(200,245,100,0.25);border-radius:var(--r-sm);padding:8px 14px;color:var(--accent);font-family:var(--font);font-size:13px;font-weight:500;cursor:pointer;text-align:left;width:100%;display:flex;align-items:center;gap:8px;transition:background 0.15s}
@@ -489,6 +490,7 @@ select option{background:#18181c}
       <div style="flex:1;min-width:0">
         <div id="fb-name" style="font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
         <div style="font-size:11px;color:var(--teal);margin-top:2px">● Sincronizado con la nube</div>
+        <div id="fb-uid-display" style="font-size:10px;color:var(--text3);margin-top:2px;word-break:break-all"></div>
       </div>
       <button class="btn" onclick="fbSignOut()" style="font-size:12px;padding:5px 10px;flex-shrink:0">Salir</button>
     </div>
@@ -947,6 +949,8 @@ const firebaseConfig = {
 };
 const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines"];
 let fbAuth = null, fbDb = null, fbUser = null;
+const ADMIN_UID = "REEMPLAZAR_CON_TU_UID"; // ← ver tu UID en Perfil después de loguearte
+let _sfCache = null, _sfCacheTime = 0;
 
 function initFirebase(){
   firebase.initializeApp(firebaseConfig);
@@ -1077,6 +1081,8 @@ function updateAuthUI(){
     if(avatar) avatar.src = fbUser.photoURL || "";
     const nameEl = document.getElementById("fb-name");
     if(nameEl) nameEl.textContent = fbUser.displayName || fbUser.email;
+    const uidEl = document.getElementById("fb-uid-display");
+    if(uidEl) uidEl.textContent = "UID: " + fbUser.uid;
   } else {
     btn.style.display = "flex";
     info.style.display = "none";
@@ -1732,11 +1738,14 @@ function onSearchInput(){
 }
 function onSearchFocus(){const q=document.getElementById("food-search").value.trim();if(q.length>=2)doSearch(q);}
 function quickSearch(q){document.getElementById("food-search").value=q;doSearch(q);}
-function doSearch(q){
-  const results=searchFoods(q);
+async function doSearch(q){
   const el=document.getElementById("search-results");
-  if(!results.length){
-    window._lastSearchQuery = q;
+  const localResults=searchFoods(q);
+  let sharedResults=[];
+  if(fbUser && fbDb){ await loadSharedFoods(); sharedResults=searchSharedFoods(q); }
+  const allResults=[...localResults,...sharedResults];
+  if(!allResults.length){
+    window._lastSearchQuery=q;
     el.innerHTML=`<div class="search-no-result">
       <p>No encontramos en la base de datos.</p>
       <button class="add-new-btn" id="gemini-search-btn" onclick="doGeminiSearch(window._lastSearchQuery)">
@@ -1749,7 +1758,7 @@ function doSearch(q){
     </div>`;
     el.classList.add("show");return;
   }
-  el.innerHTML=results.map(item=>`
+  el.innerHTML=allResults.map(item=>`
     <div class="sri" onclick='selectFood(${JSON.stringify(item)})'>
       <div style="min-width:0">
         <div class="sri-name">${item.cat} ${item.n}</div>
@@ -1757,7 +1766,7 @@ function doSearch(q){
       </div>
       <div class="sri-right">
         <div class="sri-kcal">${item.c} kcal</div>
-        <div class="sri-badge ${item.src==="custom"?"custom":item.src==="regional"||item.src==="fastfood"?"regional":""}">${item.src==="custom"?"tuyo":item.src==="regional"?"regional":"base"}</div>
+        <div class="sri-badge ${item.src==="custom"?"custom":item.src==="shared"?"shared":item.src==="regional"||item.src==="fastfood"?"regional":""}">${item.src==="custom"?"tuyo":item.src==="shared"?"☁️":"base"}</div>
       </div>
     </div>`).join("")+
     `<div class="search-no-result" style="border-top:1px solid var(--border)">
@@ -2166,6 +2175,7 @@ function renderDespensa(){
       </div>
       <div class="di-actions">
         <button class="icon-btn" onclick='selectFood({n:${JSON.stringify(f.name)},c:${f.cal},p:${f.prot},ch:${f.carb},g:${f.fat},cat:${JSON.stringify(f.cat||"🍽️")},src:"custom"})' title="Agregar al registro de hoy">+</button>
+        <button class="icon-btn" onclick="shareCustomFood(${f.id})" title="${f.sharedId?"Ya compartido":"Compartir con todos"}" style="${f.sharedId?"opacity:0.4;cursor:default":""}">☁️</button>
         <button class="icon-btn" onclick="showEditFoodModal(${f.id})" title="Editar">✏️</button>
         <button class="icon-btn del" onclick="deleteCustomFood(${f.id})" title="Eliminar">🗑</button>
       </div>
@@ -2944,10 +2954,96 @@ async function doGeminiSearch(query){
   if(!exists){
     foods.push({id:getNextFoodId(),name:food.n,cal:food.c,prot:food.p,carb:food.ch,fat:food.g,cat:food.cat,notes:"Gemini",createdAt:TODAY,src:"gemini"});
     saveCustomFoods(foods);
+    addToSharedFoods(food, "gemini"); // fire-and-forget
   }
   document.getElementById("search-results").classList.remove("show");
   selectFood(food);
 }
+// ─── SHARED FOODS ────────────────────────────────────────────────────
+const SF_CACHE_TTL = 5 * 60 * 1000;
+
+async function loadSharedFoods(){
+  if(_sfCache && Date.now() - _sfCacheTime < SF_CACHE_TTL) return _sfCache;
+  if(!fbDb || !fbUser) return [];
+  try {
+    const snap = await fbDb.collection("sharedFoods").where("status","==","approved").get();
+    _sfCache = snap.docs.map(d => {
+      const dat = d.data();
+      return {n:dat.nombre, c:dat.cal, p:dat.prot, ch:dat.carb, g:dat.fat,
+              cat:dat.cat||"☁️", src:"shared", _sfId:d.id, uploadedBy:dat.uploadedBy};
+    });
+    _sfCacheTime = Date.now();
+  } catch(e) {
+    console.warn("sharedFoods load:", e);
+    _sfCache = _sfCache || [];
+  }
+  return _sfCache;
+}
+
+function searchSharedFoods(q){
+  if(!_sfCache || !_sfCache.length) return [];
+  const nq = normalizeStr(q);
+  const localNames = new Set(getAllFoods().map(f => normalizeStr(f.n)));
+  return _sfCache.filter(f => normalizeStr(f.n).includes(nq) && !localNames.has(normalizeStr(f.n))).slice(0, 6);
+}
+
+async function addToSharedFoods(food, source){
+  if(!fbDb || !fbUser) return null;
+  const nombre = food.n || food.name || "";
+  if(!nombre || !food.c) return null;
+  try {
+    const existing = await fbDb.collection("sharedFoods").where("nombre","==",nombre).limit(1).get();
+    if(!existing.empty) return existing.docs[0].id;
+    const autoApprove = ["barcode","gemini","label","recipe"].includes(source);
+    const data = {
+      nombre, cal: food.c||0, prot: food.p||0, carb: food.ch||0, fat: food.g||0,
+      cat: food.cat||"🍽️", uploadedBy: fbUser.uid,
+      uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      source, status: autoApprove ? "approved" : "pending"
+    };
+    const ref = await fbDb.collection("sharedFoods").add(data);
+    _sfCache = null; // invalidar cache
+    if(!autoApprove) verifyAndApproveSharedFood(ref.id, nombre, {cal:food.c,prot:food.p,carb:food.ch,fat:food.g});
+    return ref.id;
+  } catch(e) {
+    console.warn("addToSharedFoods:", e);
+    return null;
+  }
+}
+
+async function verifyAndApproveSharedFood(docId, nombre, macros){
+  if(!getGeminiKey()) return;
+  const prompt = `¿Son estos valores nutricionales por 100g razonables para "${nombre}"? Respondé SOLO "si" o "no".\nCal:${macros.cal} Prot:${macros.prot}g Carb:${macros.carb}g Grasas:${macros.fat}g`;
+  try {
+    const res = await geminiPost([{role:"user",parts:[{text:prompt}]}]);
+    const text = (res?.candidates?.[0]?.content?.parts?.[0]?.text||"").toLowerCase().trim();
+    if(text.startsWith("si")||text.startsWith("sí")||text.includes("razon")){
+      await fbDb.collection("sharedFoods").doc(docId).update({status:"approved"});
+      _sfCache = null;
+    }
+  } catch(e) { console.warn("verifyAndApprove:", e); }
+}
+
+async function shareCustomFood(id){
+  const foods = getCustomFoods();
+  const f = foods.find(x => x.id === id);
+  if(!f) return;
+  if(f.sharedId){ showToast("Ya está compartido ☁️","ok"); return; }
+  if(!fbUser){ showToast("Iniciá sesión para compartir","err"); return; }
+  showToast("Compartiendo...","ok");
+  const source = ["gemini","label","recipe","barcode"].includes(f.src) ? f.src : "manual";
+  const docId = await addToSharedFoods({n:f.name,c:f.cal,p:f.prot,ch:f.carb,g:f.fat,cat:f.cat}, source);
+  if(docId){
+    const idx = foods.findIndex(x => x.id === id);
+    if(idx >= 0){ foods[idx].sharedId = docId; saveCustomFoods(foods); }
+    renderDespensa();
+    const msg = source === "manual" ? "Compartido — en revisión ⏳" : "Compartido con todos ✓";
+    showToast(msg, "ok");
+  } else {
+    showToast("Error al compartir","err");
+  }
+}
+
 function saveProfile(){
   const p={peso:+document.getElementById("p-peso").value||78,altura:+document.getElementById("p-altura").value||173,edad:+document.getElementById("p-edad").value||20,sexo:document.getElementById("p-sexo").value,act:+document.getElementById("p-act").value||1.375,obj:document.getElementById("p-obj").value};
   ss("profile",p);syncToCloud("profile",p);
@@ -3365,6 +3461,7 @@ async function onBarcodeDetected(code){
       };
       closeBarcodeModal();
       selectFood(food);
+      addToSharedFoods(food, "barcode"); // fire-and-forget
     }else{
       document.getElementById("barcode-status").textContent="Producto no encontrado en Open Food Facts. Podés fotografiar la etiqueta nutricional.";
       document.getElementById("barcode-code-found").value=code;
