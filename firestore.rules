@@ -23,7 +23,7 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update, delete: if request.auth != null &&
         (resource.data.uploadedBy == request.auth.uid ||
-         request.auth.uid == "REEMPLAZAR_CON_TU_UID");
+         request.auth.uid == "27kSUTAXhpg7NPO342S7XXPjwHn1");
     }
 
     // Todo lo demás denegado por defecto
