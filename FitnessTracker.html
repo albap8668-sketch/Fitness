@@ -458,7 +458,10 @@ select option{background:#18181c}
 <div id="sec-despensa" class="section">
   <div class="page-header">
     <div><div class="page-title">Mi despensa</div><div class="page-sub">Tus alimentos guardados</div></div>
-    <button class="btn primary" onclick="showNewFoodModal()">+ Nuevo</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn" onclick="openRecipeModal()" title="Crear alimento desde receta">🧪 Receta</button>
+      <button class="btn primary" onclick="showNewFoodModal()">+ Nuevo</button>
+    </div>
   </div>
   <div id="despensa-search-wrap" style="padding:0 18px;margin-bottom:14px">
     <input type="text" class="form-input" id="despensa-search" placeholder="Buscar en tu despensa..." oninput="renderDespensa()">
@@ -876,6 +879,41 @@ select option{background:#18181c}
         <div class="form-group"><label class="form-label">Grasas/100g</label><input type="number" class="form-input" id="foto-fat100" min="0" step="0.1" oninput="updateFotoPreview()"></div>
       </div>
       <button class="btn primary wide" onclick="confirmFotoFood()">Agregar al registro</button>
+    </div>
+  </div>
+</div>
+
+<!-- RECIPE MODAL -->
+<div class="modal-overlay" id="recipe-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🧪 Crear alimento desde receta</div>
+      <button class="modal-close" onclick="closeRecipeModal()">×</button>
+    </div>
+    <!-- Paso 1: ingredientes -->
+    <div id="recipe-step-1">
+      <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.5">Ingresá los ingredientes con cantidades. Gemini busca los macros de cada uno y calcula el total.</div>
+      <textarea id="recipe-ingredients" class="form-input" rows="7" placeholder="Ej:&#10;200g arroz&#10;150g pechuga de pollo&#10;1 cda aceite de oliva&#10;2 huevos&#10;50g cebolla" style="resize:vertical;width:100%;margin-bottom:12px;font-size:13px"></textarea>
+      <button class="btn primary wide" id="recipe-calc-btn" onclick="calcRecipeMacros()">Calcular macros</button>
+    </div>
+    <!-- Paso 2: resultados -->
+    <div id="recipe-step-2" style="display:none">
+      <div id="recipe-breakdown" style="margin-bottom:12px;max-height:180px;overflow-y:auto"></div>
+      <div style="background:var(--surface2);border-radius:var(--r);padding:10px 14px;margin-bottom:12px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Macros totales de la receta</div>
+        <div id="recipe-totals-display"></div>
+      </div>
+      <div style="font-size:12px;color:var(--text2);font-weight:500;margin-bottom:6px">Rendimiento</div>
+      <div class="form-row" style="margin-bottom:6px">
+        <div class="form-group"><label class="form-label">Peso total cocido (g)</label><input type="number" class="form-input" id="recipe-peso-total" min="1" placeholder="ej. 600" oninput="updateRecipePer100g()"></div>
+        <div class="form-group"><label class="form-label">Porciones que rinde</label><input type="number" class="form-input" id="recipe-porciones" min="1" placeholder="ej. 4" oninput="updateRecipePer100g()"></div>
+      </div>
+      <div id="recipe-per100g" style="background:var(--surface2);border-radius:var(--r);padding:10px 14px;margin-bottom:12px"></div>
+      <div class="form-group" style="margin-bottom:12px"><label class="form-label">Nombre del plato</label><input type="text" class="form-input" id="recipe-name" placeholder="Ej: Arroz con pollo casero"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn wide" onclick="recipeGoBack()">← Editar</button>
+        <button class="btn primary wide" onclick="saveRecipeToDespensa()">Guardar en Despensa</button>
+      </div>
     </div>
   </div>
 </div>
@@ -1317,6 +1355,36 @@ const LOCAL_DB = [
   {n:"Mortadela",c:260,p:13,ch:2,g:22,cat:"🥓",src:"base"},
   {n:"Paleta cocida",c:130,p:18,ch:1,g:6,cat:"🥓",src:"base"},
   {n:"Fiambre de pollo",c:110,p:16,ch:2,g:4,cat:"🥓",src:"base"},
+  // ── CORTES VACUNOS ARGENTINOS (fuente: USDA FoodData Central) ────
+  {n:"Entraña gruesa cocida (hanger steak)",c:205,p:26,ch:0,g:11,cat:"🥩",src:"base"},
+  {n:"Matambre vacuno cocido",c:215,p:26,ch:0,g:12,cat:"🥩",src:"base"},
+  {n:"Bife de costilla cocido",c:247,p:24.7,ch:0,g:16.2,cat:"🥩",src:"base"},
+  {n:"Ojo de bife cocido (ribeye)",c:269,p:26.8,ch:0,g:17.5,cat:"🥩",src:"base"},
+  {n:"Cuadril vacuno cocido",c:207,p:26.9,ch:0,g:10.6,cat:"🥩",src:"base"},
+  {n:"Colita de cuadril cocida (tri-tip)",c:215,p:27,ch:0,g:11,cat:"🥩",src:"base"},
+  {n:"Roast beef cocido (nalga al horno)",c:207,p:27.5,ch:0,g:10,cat:"🥩",src:"base"},
+  {n:"Peceto cocido",c:187,p:28.6,ch:0,g:7.3,cat:"🥩",src:"base"},
+  {n:"Osobuco vacuno estofado",c:216,p:24.5,ch:0,g:12.5,cat:"🥩",src:"base"},
+  {n:"Tapa de asado cocida",c:330,p:23,ch:0,g:26,cat:"🥩",src:"base"},
+  {n:"Tapa de cuadril cocida (picanha)",c:255,p:25,ch:0,g:17,cat:"🥩",src:"base"},
+  {n:"Aguja vacuna cocida (chuck roll)",c:259,p:24,ch:0,g:17.5,cat:"🥩",src:"base"},
+  {n:"Falda vacuna cocida",c:290,p:22,ch:0,g:22,cat:"🥩",src:"base"},
+  {n:"Marucha vacuna cocida (chuck arm)",c:232,p:25.3,ch:0,g:14.4,cat:"🥩",src:"base"},
+  {n:"Pecho vacuno cocido (brisket)",c:330,p:23,ch:0,g:26,cat:"🥩",src:"base"},
+  {n:"Paleta vacuna cocida",c:271,p:24,ch:0,g:19,cat:"🥩",src:"base"},
+  {n:"Asado de tira con hueso cocido",c:381,p:26.1,ch:0,g:30.4,cat:"🥩",src:"base"},
+  // ── CORTES INTERNACIONALES ───────────────────────────────────────
+  {n:"Sirloin cocido (lomo americano)",c:207,p:26.9,ch:0,g:10.6,cat:"🥩",src:"base"},
+  {n:"New York strip cocido",c:271,p:27.1,ch:0,g:17.4,cat:"🥩",src:"base"},
+  {n:"T-bone cocido",c:247,p:24.7,ch:0,g:16.2,cat:"🥩",src:"base"},
+  {n:"Filet mignon cocido (lomo fino)",c:192,p:29,ch:0,g:8,cat:"🥩",src:"base"},
+  {n:"Flank steak cocido",c:192,p:27.5,ch:0,g:8.9,cat:"🥩",src:"base"},
+  {n:"Skirt steak cocido (entraña fina)",c:237,p:27.5,ch:0,g:13.5,cat:"🥩",src:"base"},
+  {n:"Chuck roast cocido",c:259,p:24,ch:0,g:17.5,cat:"🥩",src:"base"},
+  {n:"Brisket cocido",c:330,p:23,ch:0,g:26,cat:"🥩",src:"base"},
+  {n:"Short ribs cocidos (asado tira)",c:381,p:26.1,ch:0,g:30.4,cat:"🥩",src:"base"},
+  {n:"Tenderloin cocido (lomo fino)",c:192,p:29,ch:0,g:8,cat:"🥩",src:"base"},
+  {n:"Picanha cocida (tapa cuadril)",c:255,p:25,ch:0,g:17,cat:"🥩",src:"base"},
   {n:"Calamar",c:92,p:16,ch:3,g:1.4,cat:"🦑",src:"base"},
   {n:"Mejillones cocidos",c:172,p:24,ch:7,g:4,cat:"🦪",src:"base"},
   {n:"Langostinos cocidos",c:99,p:21,ch:0,g:1,cat:"🦐",src:"base"},
@@ -2659,6 +2727,7 @@ function recordCalibDelta(estimatedG,finalG){
   ss("photoCalib",{n,sum});
 }
 let _lastGeminiEstimate=null; // gramos estimados por Gemini antes de edición
+let fotoModalMode="day"; // "day" | "despensa"
 
 // ─── CAMERA TIP (primera vez) ─────────────────────────────────────
 function showCameraTip(callback){
@@ -2700,7 +2769,7 @@ async function onNutritionLabelSelected(input){
       if(!text){showToast("Gemini no respondió","err");document.getElementById("foto-modal").classList.remove("show");return;}
       const data=JSON.parse(text);
       if(data.error==="no_label"){showToast("No pude leer la etiqueta nutricional","err");document.getElementById("foto-modal").classList.remove("show");return;}
-      showFotoResult(data);
+      showFotoResult(data,"despensa");
     }catch(err){document.getElementById("foto-loading").style.display="none";document.getElementById("foto-modal").classList.remove("show");showToast("Error al procesar la imagen","err");console.error(err);}
   };
   reader.readAsDataURL(file);
@@ -2782,7 +2851,14 @@ Si no podés identificar comida: {"error": "no_food"}`;
   } catch(e){ showToast("Error al analizar la foto","err"); console.error(e); return null; }
 }
 
-function showFotoResult(data){
+function showFotoResult(data, mode="day"){
+  fotoModalMode=mode;
+  const title=document.querySelector("#foto-modal .modal-title");
+  const btn=document.querySelector("#foto-modal .btn.primary.wide");
+  if(title)title.textContent=mode==="despensa"?"📋 Guardar en Despensa":"📸 Análisis de foto";
+  if(btn)btn.textContent=mode==="despensa"?"Guardar en Despensa":"Agregar al registro";
+  // En modo despensa, gramos es irrelevante — forzamos 100 para que el preview sea por 100g
+  if(mode==="despensa"&&data)data.porcion_gramos=100;
   document.getElementById("foto-nombre").value = data.nombre_plato || "";
   document.getElementById("foto-gramos").value = data.porcion_gramos || 100;
   document.getElementById("foto-cal100").value = data.calorias_100g || 0;
@@ -2822,23 +2898,35 @@ document.getElementById("foto-modal").addEventListener("click", function(e){ if(
 function confirmFotoFood(){
   const nombre = document.getElementById("foto-nombre").value.trim();
   if(!nombre){ showToast("Ingresá un nombre","err"); return; }
-  const g = +document.getElementById("foto-gramos").value || 0;
-  if(!g){ showToast("Ingresá una porción","err"); return; }
   const cal100 = +document.getElementById("foto-cal100").value || 0;
   if(!cal100){ showToast("Las calorías no pueden ser 0 — revisá los datos","err"); return; }
+  const prot100 = +document.getElementById("foto-prot100").value || 0;
+  const carb100 = +document.getElementById("foto-carb100").value || 0;
+  const fat100  = +document.getElementById("foto-fat100").value  || 0;
+
+  if(fotoModalMode === "despensa"){
+    // Guardar como alimento en Despensa (macros por 100g)
+    const foods = getCustomFoods();
+    foods.push({id:getNextFoodId(),name:nombre,cal:cal100,prot:prot100,carb:carb100,fat:fat100,cat:"🏷️",notes:"Etiqueta nutricional",createdAt:TODAY,src:"label"});
+    saveCustomFoods(foods);
+    closeFotoModal();
+    if(document.getElementById("sec-despensa")?.classList.contains("active"))renderDespensa();
+    showToast(nombre+" guardado en Despensa ✓","ok");
+    return;
+  }
+
+  // Modo "day": agregar porción al registro de hoy
+  const g = +document.getElementById("foto-gramos").value || 0;
+  if(!g){ showToast("Ingresá una porción","err"); return; }
   const f = g / 100;
   const item = {
     name: "📸 " + nombre + " ("+Math.round(g)+"g estimado)",
     cal: Math.round(cal100*f),
-    prot: +((+document.getElementById("foto-prot100").value||0)*f).toFixed(1),
-    carb: +((+document.getElementById("foto-carb100").value||0)*f).toFixed(1),
-    fat: +((+document.getElementById("foto-fat100").value||0)*f).toFixed(1),
+    prot: +(prot100*f).toFixed(1),
+    carb: +(carb100*f).toFixed(1),
+    fat:  +(fat100 *f).toFixed(1),
   };
-  // Registrar corrección para calibración personal (silencioso)
-  const finalG = g;
-  if(_lastGeminiEstimate && finalG !== _lastGeminiEstimate){
-    recordCalibDelta(_lastGeminiEstimate, finalG);
-  }
+  if(_lastGeminiEstimate && g !== _lastGeminiEstimate) recordCalibDelta(_lastGeminiEstimate, g);
   _lastGeminiEstimate = null;
   const td = getTodayData(); td.foods.push(item); saveTodayData(td);
   closeFotoModal(); renderHoy(); showToast(nombre+" agregado ✓","ok");
@@ -3792,6 +3880,143 @@ function loadLastSessionSets(ei,numSets,date){
   const t=getRoutine()[currentGymDay]?.exercises[ei]?.type||"compound";
   liveExKcal(ei,numSets,t);
   showToast("Valores de la última sesión cargados","ok");
+}
+
+// ─── RECETA → DESPENSA ────────────────────────────────────────────
+let _recipeData=null;
+function openRecipeModal(){
+  if(!getGeminiKey()){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  document.getElementById("recipe-ingredients").value="";
+  document.getElementById("recipe-name").value="";
+  document.getElementById("recipe-peso-total").value="";
+  document.getElementById("recipe-porciones").value="";
+  document.getElementById("recipe-step-1").style.display="block";
+  document.getElementById("recipe-step-2").style.display="none";
+  _recipeData=null;
+  document.getElementById("recipe-modal").classList.add("show");
+}
+function closeRecipeModal(){document.getElementById("recipe-modal").classList.remove("show");}
+function recipeGoBack(){
+  document.getElementById("recipe-step-1").style.display="block";
+  document.getElementById("recipe-step-2").style.display="none";
+}
+
+async function calcRecipeMacros(){
+  const text=document.getElementById("recipe-ingredients").value.trim();
+  if(!text){showToast("Ingresá al menos un ingrediente","err");return;}
+  const btn=document.getElementById("recipe-calc-btn");
+  btn.disabled=true;btn.textContent="Calculando...";
+
+  const prompt=`Analizá esta lista de ingredientes de una receta casera.
+Para cada ingrediente:
+1. Identificá el nombre y convertí la cantidad a gramos usando conversiones estándar (1 cda aceite=14g, 1 cda otros=12g, 1 cdita=4g, 1 taza harina=125g, 1 taza líquido=240g, 1 huevo grande=55g, 1 unidad fruta/verdura según tamaño común).
+2. Proporcioná macros por 100g usando valores USDA o reconocidos (no inventes).
+3. Estimá el peso total del resultado COCIDO (considerando evaporación de agua por cocción si aplica).
+
+Respondé SOLO con JSON:
+{
+  "ingredientes": [{"nombre":string,"gramos":number,"calorias_100g":number,"proteinas_100g":number,"carbohidratos_100g":number,"grasas_100g":number}],
+  "peso_cocido_estimado_g": number
+}
+
+Lista:
+${text}`;
+
+  const res=await geminiPost(getGeminiKey(),{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
+  btn.disabled=false;btn.textContent="Calcular macros";
+  if(!res||!res.ok){showToast("Error de Gemini","err");return;}
+  const json=await res.json();
+  const raw=json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if(!raw){showToast("Gemini no respondió","err");return;}
+  let data;
+  try{data=JSON.parse(raw);}catch{showToast("No se pudo interpretar la lista de ingredientes","err");return;}
+  if(!data.ingredientes?.length){showToast("Gemini no encontró ingredientes válidos","err");return;}
+
+  // Preferir datos de la base local cuando hay coincidencia
+  const allF=getAllFoods();
+  data.ingredientes=data.ingredientes.map(ing=>{
+    const nIng=normalizeStr(ing.nombre);
+    const match=allF.find(f=>normalizeStr(f.n).includes(nIng)||nIng.includes(normalizeStr(f.n).split(" ")[0]));
+    return match?{...ing,calorias_100g:match.c,proteinas_100g:match.p,carbohidratos_100g:match.ch,grasas_100g:match.g,src:"local"}:{...ing,src:"gemini"};
+  });
+
+  // Calcular totales
+  let tCal=0,tProt=0,tCarb=0,tFat=0,tGrams=0;
+  data.ingredientes.forEach(ing=>{
+    const f=ing.gramos/100;
+    tCal+=(ing.calorias_100g||0)*f;tProt+=(ing.proteinas_100g||0)*f;
+    tCarb+=(ing.carbohidratos_100g||0)*f;tFat+=(ing.grasas_100g||0)*f;
+    tGrams+=ing.gramos;
+  });
+  data.totales={cal:Math.round(tCal),prot:+tProt.toFixed(1),carb:+tCarb.toFixed(1),fat:+tFat.toFixed(1),gramsCrudos:Math.round(tGrams)};
+  _recipeData=data;
+
+  // Precargar peso estimado
+  document.getElementById("recipe-peso-total").value=data.peso_cocido_estimado_g||Math.round(tGrams*0.85)||"";
+  document.getElementById("recipe-porciones").value="";
+  showRecipeStep2();
+}
+
+function showRecipeStep2(){
+  const d=_recipeData;
+  // Desglose por ingrediente
+  document.getElementById("recipe-breakdown").innerHTML=
+    `<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Ingredientes</div>`+
+    d.ingredientes.map(ing=>{
+      const kcal=Math.round((ing.calorias_100g||0)*ing.gramos/100);
+      const badge=ing.src==="local"?`<span style="color:var(--teal);font-size:10px"> ✓local</span>`:`<span style="color:var(--amber);font-size:10px"> ~IA</span>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid var(--border);font-size:12px">
+        <span style="color:var(--text2)">${ing.nombre} <span style="color:var(--text3)">(${ing.gramos}g)</span>${badge}</span>
+        <span style="font-family:var(--mono);color:var(--accent)">${kcal} kcal</span></div>`;
+    }).join("")+
+    `<div style="font-size:10px;color:var(--text3);margin-top:4px">✓local = base de datos · ~IA = estimado por Gemini</div>`;
+  // Totales
+  const t=d.totales;
+  document.getElementById("recipe-totals-display").innerHTML=
+    `<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center">
+      <div><div style="font-size:16px;font-weight:600;font-family:var(--mono)">${t.cal}</div><div style="font-size:10px;color:var(--text3)">kcal</div></div>
+      <div><div style="font-size:16px;font-weight:600;font-family:var(--mono);color:var(--teal)">${t.prot}</div><div style="font-size:10px;color:var(--text3)">prot g</div></div>
+      <div><div style="font-size:16px;font-weight:600;font-family:var(--mono);color:var(--purple)">${t.carb}</div><div style="font-size:10px;color:var(--text3)">carb g</div></div>
+      <div><div style="font-size:16px;font-weight:600;font-family:var(--mono);color:var(--amber)">${t.fat}</div><div style="font-size:10px;color:var(--text3)">grasas g</div></div>
+    </div>`;
+  document.getElementById("recipe-step-1").style.display="none";
+  document.getElementById("recipe-step-2").style.display="block";
+  updateRecipePer100g();
+}
+
+function updateRecipePer100g(){
+  if(!_recipeData)return;
+  const t=_recipeData.totales;
+  const pesoTotal=+document.getElementById("recipe-peso-total").value||0;
+  const porciones=+document.getElementById("recipe-porciones").value||0;
+  // Determinar base para normalizar a 100g
+  let baseG=pesoTotal||(porciones>0?_recipeData.peso_cocido_estimado_g||t.gramsCrudos:0);
+  const el=document.getElementById("recipe-per100g");
+  if(!baseG){el.innerHTML=`<div style="font-size:12px;color:var(--text3)">Ingresá el peso total o la cantidad de porciones para ver los macros por 100g</div>`;return;}
+  const f=100/baseG;
+  const cal100=Math.round(t.cal*f),prot100=+(t.prot*f).toFixed(1),carb100=+(t.carb*f).toFixed(1),fat100=+(t.fat*f).toFixed(1);
+  const porcionLabel=porciones>0&&!pesoTotal?` (estimado, ${porciones} porc.)`:pesoTotal?` (${pesoTotal}g)`:` (estimado)`;
+  el.innerHTML=`<div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Por 100g${porcionLabel}</div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;text-align:center">
+      <div><div style="font-size:15px;font-weight:600;font-family:var(--mono)">${cal100}</div><div style="font-size:10px;color:var(--text3)">kcal</div></div>
+      <div><div style="font-size:15px;font-weight:600;font-family:var(--mono);color:var(--teal)">${prot100}</div><div style="font-size:10px;color:var(--text3)">prot g</div></div>
+      <div><div style="font-size:15px;font-weight:600;font-family:var(--mono);color:var(--purple)">${carb100}</div><div style="font-size:10px;color:var(--text3)">carb g</div></div>
+      <div><div style="font-size:15px;font-weight:600;font-family:var(--mono);color:var(--amber)">${fat100}</div><div style="font-size:10px;color:var(--text3)">grasas g</div></div>
+    </div>`;
+  _recipeData._per100={cal:cal100,prot:prot100,carb:carb100,fat:fat100};
+}
+
+function saveRecipeToDespensa(){
+  const name=document.getElementById("recipe-name").value.trim();
+  if(!name){showToast("Ingresá un nombre para el plato","err");return;}
+  if(!_recipeData?._per100){showToast("Ingresá el peso total o porciones primero","err");return;}
+  const p=_recipeData._per100;
+  const foods=getCustomFoods();
+  foods.push({id:getNextFoodId(),name,cal:p.cal,prot:p.prot,carb:p.carb,fat:p.fat,cat:"🍳",notes:"Receta propia",createdAt:TODAY,src:"recipe"});
+  saveCustomFoods(foods);
+  closeRecipeModal();
+  if(document.getElementById("sec-despensa")?.classList.contains("active"))renderDespensa();
+  showToast(name+" guardado en Despensa ✓","ok");
 }
 
 // ─── OFFLINE / ONLINE ──────────────────────────────────────────────
