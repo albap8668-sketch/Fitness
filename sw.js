@@ -1,5 +1,5 @@
-// FitnessTracker Service Worker v5
-const CACHE = "fitness-v5";
+// FitnessTracker Service Worker v6
+const CACHE = "fitness-v6";
 const ASSETS = [
   "/Fitness/FitnessTracker.html",
   "/Fitness/manifest.json",
@@ -19,6 +19,17 @@ self.addEventListener("activate", e => {
     caches.keys().then(keys =>
       Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
     ).then(() => self.clients.claim())
+  );
+});
+
+// Al tocar la notificación de descanso terminado, enfocar (o abrir) la app
+self.addEventListener("notificationclick", e => {
+  e.notification.close();
+  e.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then(list => {
+      for (const c of list) { if ("focus" in c) return c.focus(); }
+      return clients.openWindow("/Fitness/FitnessTracker.html");
+    })
   );
 });
 

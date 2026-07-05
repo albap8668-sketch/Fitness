@@ -390,7 +390,9 @@ select option{background:#18181c}
   </div>
   <div class="day-tabs" id="day-tabs"></div>
   <!-- Cronómetro de sesión -->
-  <div id="gym-session-timer">⏱ Sesión en curso: <span id="gym-timer-display">0:00</span></div>
+  <div id="gym-session-timer">⏱ Sesión en curso: <span id="gym-timer-display">0:00</span>
+    <button class="btn" onclick="finishGymSession()" style="margin-left:auto;font-size:11px;padding:4px 10px">✓ Finalizar sesión</button>
+  </div>
   <!-- Sugerencia IA -->
   <div style="padding:0 18px;margin-bottom:8px">
     <button class="btn wide" id="ai-suggest-btn" onclick="sugerirRutinaIA()" style="font-size:13px;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -2379,6 +2381,7 @@ function saveExSets(ei,numSets,date){
   if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
   // Cronómetro de sesión: arrancar en el primer save del día
   if(isFirstSave)startGymTimer();
+  gymTouch(); // registrar actividad (para el auto-cierre de seguridad de 4h)
   // Detección de PR
   const validSets=sets.filter(s=>s.peso&&s.reps);
   if(validSets.length)checkForPR(ei,validSets,currentGymDay,date);
@@ -2392,15 +2395,12 @@ function saveAllSets(numEx,date){
   const allDays=getDays();
   if(!allDays[date])allDays[date]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
   if(currentSessionRoutineId)allDays[date].gymRoutineId=currentSessionRoutineId;
-  const elapsed=_gymStart?Math.floor((Date.now()-_gymStart)/1000):0;
+  const elapsed=gymElapsedSecs();
   if(elapsed>60)allDays[date].gymDuration=elapsed;
   ss("days",allDays);syncToCloud("days",allDays);
   // Detener timers
   stopRestTimer();
   stopGymTimer();
-  const timerEl=document.getElementById("gym-session-timer");
-  if(timerEl)timerEl.style.display="none";
-  _gymStart=null;
   updateLeaderboard();
   showToast(elapsed>60?"Sesión guardada · "+formatDuration(elapsed):"Sesión guardada","ok");
 }
@@ -3395,11 +3395,16 @@ function showTab(name,btn){
   document.getElementById("sec-"+name).classList.add("active");btn.classList.add("active");
   if(name==="hoy")renderHoy();if(name==="gym")renderGym();if(name==="semana")renderSemana();
   if(name==="despensa")renderDespensa();if(name==="perfil")renderPerfil();
+  updateFloatingTimer();
 }
 let toastTimer;
 function showToast(msg,type="ok"){const t=document.getElementById("toast");t.textContent=msg;t.className="toast "+type;t.classList.add("show");clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove("show"),2500);}
 document.getElementById("hoy-date").value=TODAY;
 renderHoy();
+
+// Restaurar cronómetros que quedaron corriendo (sobreviven a cierres de la app)
+restoreGymTimer();
+restoreRestTimer();
 
 // Inicializar Firebase
 initFirebase();
@@ -3886,91 +3891,266 @@ function showPRCelebration(ei){
   if(navigator.vibrate)navigator.vibrate([100,50,100,50,200]);
 }
 
-// ─── REST TIMER ───────────────────────────────────────────────────
-const _rt={active:false,paused:false,total:90,remaining:90,interval:null,lastPreset:90};
-function playBeep(){
+// ─── REST TIMER (basado en timestamp — sobrevive suspensión de la app) ──
+// Fuente de verdad: localStorage.restTimerEnd (epoch ms). El setInterval SOLO refresca la UI.
+const _rt={interval:null,lastPreset:+(localStorage.getItem("restTimerPreset")||90),notified:false};
+const _origTitle=document.title;
+
+// Audio: en iOS el contexto solo se puede crear/resumir con un tap del usuario.
+// Lo desbloqueamos al INICIAR el timer, y lo reutilizamos al llegar a cero.
+let _audioCtx=null;
+function unlockAudio(){
   try{
-    const ctx=new(window.AudioContext||window.webkitAudioContext)();
-    const b=(t,f,d)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.start(t);o.stop(t+d+0.05);};
-    b(ctx.currentTime,880,0.15);b(ctx.currentTime+0.2,1100,0.15);b(ctx.currentTime+0.4,1320,0.3);
-    setTimeout(()=>ctx.close(),1200);
+    if(!_audioCtx)_audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+    if(_audioCtx.state==="suspended")_audioCtx.resume();
   }catch(e){}
 }
+function playBeep(){
+  try{
+    const ctx=_audioCtx||new(window.AudioContext||window.webkitAudioContext)();
+    if(ctx.state==="suspended")ctx.resume();
+    const b=(t,f,d)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.connect(g);g.connect(ctx.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(0.35,t+0.02);g.gain.exponentialRampToValueAtTime(0.001,t+d);o.start(t);o.stop(t+d+0.05);};
+    b(ctx.currentTime,880,0.15);b(ctx.currentTime+0.2,1100,0.15);b(ctx.currentTime+0.4,1320,0.3);
+  }catch(e){}
+}
+
+// Permiso de notificaciones: se pide la PRIMERA vez que se usa el timer, no al abrir la app
+function maybeAskNotifPermission(){
+  if(!("Notification" in window))return;
+  if(localStorage.getItem("notifAsked"))return;
+  localStorage.setItem("notifAsked","1");
+  if(Notification.permission==="default")Notification.requestPermission().catch(()=>{});
+}
+function showRestNotification(){
+  if(!("Notification" in window)||Notification.permission!=="granted")return;
+  navigator.serviceWorker?.getRegistration().then(reg=>{
+    if(reg)reg.showNotification("⏱ Descanso terminado",{body:"¡A la próxima serie!",tag:"rest-timer",icon:"icon-192.png"});
+  }).catch(()=>{});
+}
+
+function _rtState(){
+  const end=+localStorage.getItem("restTimerEnd")||0;
+  const total=+localStorage.getItem("restTimerTotal")||0;
+  const pausedRem=localStorage.getItem("restTimerPausedRem");
+  if(pausedRem!==null)return{active:true,paused:true,remaining:+pausedRem,total};
+  if(!end)return{active:false};
+  return{active:true,paused:false,remaining:Math.ceil((end-Date.now())/1000),total};
+}
 function _rtUpdateDisplay(){
-  const s=_rt.remaining,m=Math.floor(s/60),sec=s%60;
+  const st=_rtState();
+  if(!st.active)return;
+  const s=Math.max(0,st.remaining),m=Math.floor(s/60),sec=s%60;
+  const txt=m+":"+(sec<10?"0":"")+sec;
   const disp=document.getElementById("rest-timer-display");
-  if(disp){disp.textContent=m+":"+(sec<10?"0":"")+sec;disp.style.color=s<=10?"var(--red)":s<=30?"var(--amber)":"var(--accent)";}
+  if(disp){disp.textContent=txt;disp.style.color=s<=10?"var(--red)":s<=30?"var(--amber)":"var(--accent)";}
   const bar=document.getElementById("rest-timer-bar");
-  if(bar)bar.style.width=(_rt.total>0?Math.round(_rt.remaining/_rt.total*100):0)+"%";
+  if(bar)bar.style.width=(st.total>0?Math.round(s/st.total*100):0)+"%";
+  // Título de la pestaña como señal extra (desktop / Android-Chrome)
+  if(!st.paused)document.title="⏱ "+txt+" — Fitness";
   document.querySelectorAll(".rest-preset").forEach(b=>{
     const v=+b.onclick?.toString().match(/\d+/)?.[0];
-    b.classList.toggle("active",v===_rt.lastPreset&&_rt.total===_rt.lastPreset);
+    b.classList.toggle("active",v===_rt.lastPreset&&st.total===_rt.lastPreset);
   });
 }
+function _rtTick(){
+  const st=_rtState();
+  if(!st.active){_rtStopInterval();return;}
+  if(st.paused)return;
+  _rtUpdateDisplay();
+  updateFloatingTimer();
+  if(st.remaining<=0&&!_rt.notified)onRestTimerDone(0);
+}
+function _rtStopInterval(){if(_rt.interval){clearInterval(_rt.interval);_rt.interval=null;}}
+
 function startRestTimer(seconds){
-  if(_rt.interval)clearInterval(_rt.interval);
-  _rt.active=true;_rt.paused=false;_rt.total=seconds;_rt.remaining=seconds;_rt.lastPreset=seconds;
+  unlockAudio();               // tap del usuario → desbloquear audio para el beep final
+  maybeAskNotifPermission();   // pedir permiso de forma contextual (solo la primera vez)
+  _rtStopInterval();
+  _rt.lastPreset=seconds;_rt.notified=false;
+  localStorage.setItem("restTimerPreset",seconds);
+  localStorage.setItem("restTimerEnd",Date.now()+seconds*1000);
+  localStorage.setItem("restTimerTotal",seconds);
+  localStorage.removeItem("restTimerPausedRem");
   const panel=document.getElementById("rest-timer-panel");
   if(panel)panel.classList.add("show");
   const btn=document.getElementById("rest-toggle-btn");
   if(btn)btn.textContent="⏸ Pausar";
   _rtUpdateDisplay();
-  _rt.interval=setInterval(()=>{
-    if(_rt.paused)return;
-    _rt.remaining--;
-    _rtUpdateDisplay();
-    if(_rt.remaining<=0){onRestTimerDone();}
-  },1000);
+  _rt.interval=setInterval(_rtTick,500);
 }
-function onRestTimerDone(){
-  clearInterval(_rt.interval);_rt.interval=null;_rt.active=false;
+function onRestTimerDone(lateSecs){
+  _rt.notified=true;
+  _rtStopInterval();
   playBeep();
-  if(navigator.vibrate)navigator.vibrate([300,100,300]);
+  if("vibrate" in navigator)navigator.vibrate([300,100,300]); // Android/Chrome; iOS no lo soporta
+  if(document.hidden)showRestNotification();
+  document.title=_origTitle;
   const disp=document.getElementById("rest-timer-display");
   if(disp){disp.textContent="¡Listo!";disp.style.color="var(--teal)";}
+  if(lateSecs>2)showToast("⏱ El descanso terminó hace "+(lateSecs>=60?Math.floor(lateSecs/60)+" min":lateSecs+" seg"),"ok");
   setTimeout(stopRestTimer,2000);
 }
 function stopRestTimer(){
-  if(_rt.interval){clearInterval(_rt.interval);_rt.interval=null;}
-  _rt.active=false;_rt.paused=false;
+  _rtStopInterval();
+  localStorage.removeItem("restTimerEnd");
+  localStorage.removeItem("restTimerTotal");
+  localStorage.removeItem("restTimerPausedRem");
+  document.title=_origTitle;
   const panel=document.getElementById("rest-timer-panel");
   if(panel)panel.classList.remove("show");
+  updateFloatingTimer();
 }
 function toggleRestTimerPause(){
-  _rt.paused=!_rt.paused;
+  const st=_rtState();
+  if(!st.active)return;
   const btn=document.getElementById("rest-toggle-btn");
-  if(btn)btn.textContent=_rt.paused?"▶ Continuar":"⏸ Pausar";
+  if(st.paused){
+    // Reanudar: recalcular el fin desde el tiempo restante congelado
+    localStorage.setItem("restTimerEnd",Date.now()+Math.max(0,st.remaining)*1000);
+    localStorage.removeItem("restTimerPausedRem");
+    if(btn)btn.textContent="⏸ Pausar";
+    if(!_rt.interval)_rt.interval=setInterval(_rtTick,500);
+  }else{
+    localStorage.setItem("restTimerPausedRem",Math.max(0,st.remaining));
+    localStorage.removeItem("restTimerEnd");
+    if(btn)btn.textContent="▶ Continuar";
+    document.title=_origTitle;
+  }
 }
 function setRestTime(seconds){
   if(!seconds||seconds<5)return;
-  _rt.lastPreset=seconds;
-  if(_rt.active){startRestTimer(seconds);}
-  else{_rt.total=seconds;_rt.remaining=seconds;_rtUpdateDisplay();startRestTimer(seconds);}
+  startRestTimer(seconds);
+}
+// Restaurar timer de descanso al cargar la app (si quedó corriendo)
+function restoreRestTimer(){
+  const st=_rtState();
+  if(!st.active)return;
+  if(!st.paused&&st.remaining<=0){
+    // Terminó mientras la app estaba cerrada/suspendida
+    const end=+localStorage.getItem("restTimerEnd")||Date.now();
+    const late=Math.floor((Date.now()-end)/1000);
+    stopRestTimer();
+    if(late<600)showToast("⏱ El descanso terminó hace "+(late>=60?Math.floor(late/60)+" min":late+" seg"),"ok");
+    return;
+  }
+  const panel=document.getElementById("rest-timer-panel");
+  if(panel)panel.classList.add("show");
+  const btn=document.getElementById("rest-toggle-btn");
+  if(btn)btn.textContent=st.paused?"▶ Continuar":"⏸ Pausar";
+  _rt.notified=false;
+  _rtUpdateDisplay();
+  if(!st.paused)_rt.interval=setInterval(_rtTick,500);
 }
 
-// ─── SESSION DURATION TIMER ───────────────────────────────────────
-let _gymStart=null,_gymInterval=null;
+// ─── SESSION DURATION TIMER (timestamp persistido — sobrevive cierres) ──
+const GYM_SESSION_MAX_MS=4*60*60*1000; // auto-cierre de seguridad: 4 horas
+let _gymInterval=null;
+function _gymStartTs(){return +localStorage.getItem("gymSessionStart")||null;}
+function gymTouch(){if(_gymStartTs())localStorage.setItem("gymSessionLastActivity",Date.now());}
 function startGymTimer(){
-  if(_gymStart)return;
-  _gymStart=Date.now();
+  if(_gymStartTs())return;
+  localStorage.setItem("gymSessionStart",Date.now());
+  localStorage.setItem("gymSessionLastActivity",Date.now());
+  _gymShowUI();
+}
+function _gymShowUI(){
   const el=document.getElementById("gym-session-timer");
   if(el)el.style.display="flex";
-  _gymInterval=setInterval(updateGymTimerDisplay,1000);
+  if(!_gymInterval)_gymInterval=setInterval(()=>{updateGymTimerDisplay();updateFloatingTimer();},1000);
   updateGymTimerDisplay();
 }
 function stopGymTimer(){
   if(_gymInterval){clearInterval(_gymInterval);_gymInterval=null;}
+  localStorage.removeItem("gymSessionStart");
+  localStorage.removeItem("gymSessionLastActivity");
+  const el=document.getElementById("gym-session-timer");
+  if(el)el.style.display="none";
+  updateFloatingTimer();
+}
+function gymElapsedSecs(){
+  const start=_gymStartTs();
+  return start?Math.floor((Date.now()-start)/1000):0;
 }
 function updateGymTimerDisplay(){
   const el=document.getElementById("gym-timer-display");if(!el)return;
-  const s=Math.floor((Date.now()-(_gymStart||Date.now()))/1000);
+  const s=gymElapsedSecs();
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
   el.textContent=h>0?h+":"+(m<10?"0":"")+m+":"+(sec<10?"0":"")+sec:m+":"+(sec<10?"0":"")+sec;
+}
+// Botón explícito "Finalizar sesión": guarda la duración y cierra el cronómetro
+function finishGymSession(){
+  const elapsed=gymElapsedSecs();
+  if(elapsed>60){
+    const allDays=getDays();
+    if(!allDays[TODAY])allDays[TODAY]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
+    allDays[TODAY].gymDuration=elapsed;
+    ss("days",allDays);syncToCloud("days",allDays);
+  }
+  stopGymTimer();
+  showToast(elapsed>60?"Sesión finalizada · "+formatDuration(elapsed):"Sesión finalizada","ok");
+}
+// Restaurar sesión al cargar. Si pasaron >4h sin actividad, cerrarla en el último registro
+function restoreGymTimer(){
+  const start=_gymStartTs();
+  if(!start)return;
+  const lastAct=+localStorage.getItem("gymSessionLastActivity")||start;
+  if(Date.now()-lastAct>GYM_SESSION_MAX_MS){
+    // Sesión olvidada: guardar duración hasta la última actividad registrada
+    const elapsed=Math.floor((lastAct-start)/1000);
+    if(elapsed>60){
+      const date=new Date(start).toISOString().split("T")[0];
+      const allDays=getDays();
+      if(allDays[date]){allDays[date].gymDuration=elapsed;ss("days",allDays);syncToCloud("days",allDays);}
+    }
+    stopGymTimer();
+    showToast("Sesión anterior cerrada automáticamente ("+formatDuration(elapsed)+")","ok");
+    return;
+  }
+  _gymShowUI();
 }
 function formatDuration(s){
   const h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
   return h>0?h+"h "+m+"min":m+"min";
 }
+
+// ─── INDICADOR FLOTANTE (timers visibles desde cualquier pestaña) ────
+function updateFloatingTimer(){
+  const pill=document.getElementById("floating-timer");if(!pill)return;
+  const gymActive=document.getElementById("sec-gym")?.classList.contains("active");
+  const rest=_rtState();
+  const session=_gymStartTs();
+  if(gymActive||(!rest.active&&!session)){pill.style.display="none";return;}
+  let txt="";
+  if(rest.active&&rest.remaining>0){
+    const s=Math.max(0,rest.remaining);
+    txt="⏱ "+Math.floor(s/60)+":"+((s%60)<10?"0":"")+(s%60);
+  }else if(session){
+    const s=gymElapsedSecs(),h=Math.floor(s/3600),m=Math.floor((s%3600)/60);
+    txt="🏋️ "+(h>0?h+":"+(m<10?"0":"")+m:m+" min");
+  }
+  if(!txt){pill.style.display="none";return;}
+  pill.textContent=txt;
+  pill.style.display="block";
+}
+
+// ─── RESYNC AL VOLVER A LA APP (visibilitychange) ─────────────────
+document.addEventListener("visibilitychange",()=>{
+  if(document.hidden)return;
+  // Rest timer: recalcular contra el timestamp real
+  const st=_rtState();
+  if(st.active&&!st.paused){
+    if(st.remaining<=0&&!_rt.notified){
+      const end=+localStorage.getItem("restTimerEnd")||Date.now();
+      onRestTimerDone(Math.floor((Date.now()-end)/1000));
+    }else{
+      _rtUpdateDisplay();
+    }
+  }else if(!st.active){
+    document.title=_origTitle;
+  }
+  updateGymTimerDisplay();
+  updateFloatingTimer();
+});
 
 // ─── CARGAR ÚLTIMA SESIÓN ─────────────────────────────────────────
 function loadLastSessionSets(ei,numSets,date){
@@ -4171,6 +4351,9 @@ if("serviceWorker" in navigator){
     <button class="btn primary wide" onclick="dismissCameraTip()">Entendido, sacar foto</button>
   </div>
 </div>
+
+<!-- FLOATING TIMER PILL (visible en cualquier pestaña mientras hay timers activos) -->
+<div id="floating-timer" onclick="document.querySelectorAll('.nav-btn')[1]?.click()" style="display:none;position:fixed;top:12px;right:12px;z-index:850;background:var(--surface);border:1px solid var(--accent);border-radius:20px;padding:6px 14px;font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent);box-shadow:0 4px 16px rgba(0,0,0,0.4);cursor:pointer"></div>
 
 <!-- REST TIMER PANEL -->
 <div id="rest-timer-panel">
