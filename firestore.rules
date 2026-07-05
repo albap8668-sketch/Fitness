@@ -19,8 +19,13 @@ service cloud.firestore {
     // - Cualquier usuario autenticado puede crear (para agregar alimentos)
     // - Solo el creador o el admin pueden editar/borrar
     match /sharedFoods/{docId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
+      // Aprobados: visibles para todos. Pendientes: solo el que los subió o el admin
+      allow read: if request.auth != null &&
+        (resource.data.status == "approved" ||
+         resource.data.uploadedBy == request.auth.uid ||
+         request.auth.uid == "27kSUTAXhpg7NPO342S7XXPjwHn1");
+      allow create: if request.auth != null &&
+        request.resource.data.uploadedBy == request.auth.uid;
       allow update, delete: if request.auth != null &&
         (resource.data.uploadedBy == request.auth.uid ||
          request.auth.uid == "27kSUTAXhpg7NPO342S7XXPjwHn1");

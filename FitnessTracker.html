@@ -2992,18 +2992,28 @@ async function addToSharedFoods(food, source){
   const nombre = food.n || food.name || "";
   if(!nombre || !food.c) return null;
   try {
-    const existing = await fbDb.collection("sharedFoods").where("nombre","==",nombre).limit(1).get();
-    if(!existing.empty) return existing.docs[0].id;
-    const autoApprove = ["barcode","gemini","label","recipe"].includes(source);
+    // Buscar duplicado entre los aprobados (las reglas no permiten leer pendientes ajenos)
+    const existing = await fbDb.collection("sharedFoods").where("nombre","==",nombre).where("status","==","approved").limit(1).get();
+    if(!existing.empty){ window._sfLastStatus = "approved"; return existing.docs[0].id; }
+    let status = "approved";
+    if(source === "manual"){
+      const check = await verifySharedFoodMacros(nombre, {cal:food.c,prot:food.p,carb:food.ch,fat:food.g});
+      if(check === "suspicious"){
+        const ok = confirm(`🤖 Los macros de "${nombre}" parecen inusuales para ese alimento.\n\nCal:${food.c} P:${food.p}g C:${food.ch}g G:${food.g}g (por 100g)\n\n¿Compartir igual? (quedará en revisión hasta que lo apruebe el admin)`);
+        if(!ok) return null; // el usuario prefiere corregirlo primero
+        status = "pending";
+      }
+      // check === "ok" o "unknown" (sin API key / error) → approved
+    }
     const data = {
       nombre, cal: food.c||0, prot: food.p||0, carb: food.ch||0, fat: food.g||0,
       cat: food.cat||"🍽️", uploadedBy: fbUser.uid,
       uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      source, status: autoApprove ? "approved" : "pending"
+      source, status
     };
     const ref = await fbDb.collection("sharedFoods").add(data);
     _sfCache = null; // invalidar cache
-    if(!autoApprove) verifyAndApproveSharedFood(ref.id, nombre, {cal:food.c,prot:food.p,carb:food.ch,fat:food.g});
+    window._sfLastStatus = status;
     return ref.id;
   } catch(e) {
     console.warn("addToSharedFoods:", e);
@@ -3011,17 +3021,17 @@ async function addToSharedFoods(food, source){
   }
 }
 
-async function verifyAndApproveSharedFood(docId, nombre, macros){
-  if(!getGeminiKey()) return;
+// Devuelve "ok" | "suspicious" | "unknown"
+async function verifySharedFoodMacros(nombre, macros){
+  if(!getGeminiKey()) return "unknown";
   const prompt = `¿Son estos valores nutricionales por 100g razonables para "${nombre}"? Respondé SOLO "si" o "no".\nCal:${macros.cal} Prot:${macros.prot}g Carb:${macros.carb}g Grasas:${macros.fat}g`;
   try {
     const res = await geminiPost([{role:"user",parts:[{text:prompt}]}]);
     const text = (res?.candidates?.[0]?.content?.parts?.[0]?.text||"").toLowerCase().trim();
-    if(text.startsWith("si")||text.startsWith("sí")||text.includes("razon")){
-      await fbDb.collection("sharedFoods").doc(docId).update({status:"approved"});
-      _sfCache = null;
-    }
-  } catch(e) { console.warn("verifyAndApprove:", e); }
+    if(text.startsWith("si")||text.startsWith("sí")) return "ok";
+    if(text.startsWith("no")) return "suspicious";
+    return "unknown";
+  } catch(e) { console.warn("verifySharedFoodMacros:", e); return "unknown"; }
 }
 
 async function shareCustomFood(id){
@@ -3037,11 +3047,9 @@ async function shareCustomFood(id){
     const idx = foods.findIndex(x => x.id === id);
     if(idx >= 0){ foods[idx].sharedId = docId; saveCustomFoods(foods); }
     renderDespensa();
-    const msg = source === "manual" ? "Compartido — en revisión ⏳" : "Compartido con todos ✓";
-    showToast(msg, "ok");
-  } else {
-    showToast("Error al compartir","err");
+    showToast(window._sfLastStatus === "pending" ? "Compartido — en revisión ⏳" : "Compartido con todos ✓", "ok");
   }
+  // docId null = canceló en el diálogo de macros inusuales o hubo error (ya avisado)
 }
 
 function saveProfile(){
