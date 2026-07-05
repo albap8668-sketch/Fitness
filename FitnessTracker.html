@@ -346,6 +346,21 @@ select option{background:#18181c}
   </div>
   <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
   <input type="file" id="label-input" accept="image/*" capture="environment" style="display:none" onchange="onNutritionLabelSelected(this)">
+  <!-- REGISTRO CONVERSACIONAL -->
+  <div class="food-search-wrap">
+    <div class="search-box" style="border-color:rgba(200,245,100,0.3)">
+      <div class="search-top">
+        <span style="font-size:14px">🗣</span>
+        <span style="font-size:12px;color:var(--text2)">Contá qué comiste — la IA lo registra</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:stretch">
+        <textarea id="nl-food-input" rows="1" placeholder="ej: 2 milanesas con puré y una coca chica" autocomplete="off" style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:14px;resize:none;outline:none;line-height:1.4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();parseNaturalFood();}"></textarea>
+        <button id="nl-mic-btn" onclick="nlToggleVoice()" title="Dictar por voz" style="display:none;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 12px;font-size:16px;cursor:pointer">🎤</button>
+        <button id="nl-send-btn" onclick="parseNaturalFood()" title="Registrar" style="background:var(--accent);border:none;border-radius:var(--r-sm);padding:0 14px;font-size:15px;font-weight:700;color:#0e0e10;cursor:pointer">➤</button>
+      </div>
+    </div>
+  </div>
+
   <div class="food-search-wrap" id="food-search-wrap">
     <div class="search-box">
       <div class="search-top">
@@ -1723,7 +1738,13 @@ function getDayTargets(td){
 // ─── SEARCH ───────────────────────────────────────────────────────
 function normalizeStr(s){return(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")}
 function getAllFoods(){
-  const custom=getCustomFoods().map(f=>({n:f.name,c:f.cal,p:f.prot,ch:f.carb,g:f.fat,cat:f.cat,src:"custom",id:f.id,notes:f.notes}));
+  const custom=getCustomFoods().map(f=>{
+    const o={n:f.name,c:f.cal,p:f.prot,ch:f.carb,g:f.fat,cat:f.cat,src:"custom",id:f.id,notes:f.notes};
+    // Porciones aprendidas (ej. del registro conversacional): el modal de porciones las usa
+    const p0=f.porciones?.[0];
+    if(p0?.gramos){o._gu=p0.unidad;o._gpU=p0.gramos;o._allowed=_GEMINI_UNIT_ALLOWED[p0.unidad]||null;}
+    return o;
+  });
   return [...LOCAL_DB,...custom];
 }
 function searchFoods(q){
@@ -2717,6 +2738,171 @@ async function searchFoodWithGemini(query){
   } catch(e){showToast("Error al contactar Gemini","err");console.error(e);return null;}
 }
 
+// ─── REGISTRO CONVERSACIONAL DE COMIDAS ──────────────────────────
+let _nlItems=null;
+
+// Busca el alimento en base local + despensa + sharedFoods (cache) por nombre normalizado
+function findLocalFood(nombre){
+  const nn=normalizeStr(nombre);
+  const pool=[...getAllFoods(),...(_sfCache||[])];
+  return pool.find(f=>normalizeStr(f.n)===nn)
+      || pool.find(f=>normalizeStr(f.n).includes(nn)||nn.includes(normalizeStr(f.n)))
+      || null;
+}
+
+async function parseNaturalFood(){
+  const input=document.getElementById("nl-food-input");
+  const text=(input?.value||"").trim();
+  if(!text){showToast("Contame qué comiste","err");return;}
+  const key=getGeminiKey();
+  if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  const btn=document.getElementById("nl-send-btn");
+  if(btn){btn.disabled=true;btn.textContent="…";}
+  if(fbUser&&fbDb)await loadSharedFoods(); // para el lookup local
+  const prompt=`Sos un nutricionista experto en tablas nutricionales reconocidas (USDA FoodData Central, tablas argentinas SARA/ARGENFOOD). Un usuario argentino describe en lenguaje natural lo que comió. Analizá el texto y devolvé SOLO este JSON:
+{"items":[{"nombre":"...","calorias_100g":N,"proteinas_100g":N,"carbohidratos_100g":N,"grasas_100g":N,"unidad":"porcion|vaso|unidad|plato|taza|copa|lata|feta|rebanada|cda|g","gramos_por_unidad":N,"cantidad":N,"confianza":"alta|media|baja"}]}
+
+Reglas ESTRICTAS:
+- Razoná internamente paso a paso el tamaño de cada porción ANTES de responder, pero en la respuesta devolvé SOLO el JSON.
+- Valores por 100g tomados de fuentes reconocidas (USDA / tablas argentinas). NO inventes valores vagos: usá el estándar del alimento más cercano conocido.
+- Contexto argentino: vaso ≈ 250ml, taza ≈ 240ml, porción de torta/postre ≈ 120g, plato de comida ≈ 300-350g, milanesa ≈ 130g, empanada ≈ 100g, lata de gaseosa ≈ 354ml, botella chica ≈ 500ml.
+- "gramos_por_unidad" = peso o volumen en gramos/ml de UNA unidad de lo que mencionó, estimado para ESE alimento específico.
+- "cantidad" = cuántas unidades comió ("2 milanesas" → cantidad 2).
+- "nombre" normalizado, en singular, sin la cantidad ("Milanesa de carne", no "2 milanesas").
+- Bebidas: las bebidas azucaradas TIENEN calorías (limonada ≈ 40 kcal/100ml, gaseosa común ≈ 42 kcal/100ml, jugo ≈ 45). NUNCA devuelvas 0 calorías para una bebida con azúcar. Gaseosas "zero"/light sí son ~0.
+- Ambigüedad: si algo relevante es ambiguo (ej. "hamburguesa" — ¿casera o fast food?), elegí la interpretación MÁS PROBABLE y marcá ese ítem con confianza "baja".
+- "confianza": "alta" si el alimento y la porción son claros, "media" si la porción es estimada, "baja" si hubo ambigüedad importante.
+
+Texto del usuario: "${text.replace(/"/g,"'")}"`;
+  try{
+    const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
+    if(!res||!res.ok){showToast(res?.status===503||res?.status===429?"Demasiadas consultas, esperá unos segundos":"Error de Gemini ("+(res?.status||"sin conexión")+")","err");return;}
+    const data=await res.json();
+    const raw=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!raw){showToast("Gemini no respondió","err");return;}
+    const parsed=JSON.parse(raw);
+    const items=(parsed.items||[]).filter(it=>it.nombre&&it.gramos_por_unidad>0);
+    if(!items.length){showToast("No pude identificar alimentos en el texto","err");return;}
+    // Enriquecer: si el alimento ya existe en la base, usar SUS valores (más consistentes)
+    _nlItems=items.map(it=>{
+      const local=findLocalFood(it.nombre);
+      return{
+        nombre:local?local.n:it.nombre,
+        c:local?+local.c:+it.calorias_100g||0,
+        p:local?+local.p:+it.proteinas_100g||0,
+        ch:local?+local.ch:+it.carbohidratos_100g||0,
+        g:local?+local.g:+it.grasas_100g||0,
+        cat:local?.cat||"🤖",
+        unidad:it.unidad||"porcion",
+        gpU:+it.gramos_por_unidad,
+        cantidad:+it.cantidad||1,
+        confianza:it.confianza||"media",
+        local:!!local
+      };
+    });
+    renderNLConfirm();
+    document.getElementById("nl-confirm-modal").classList.add("show");
+  }catch(e){showToast("Error al interpretar la respuesta","err");console.error(e);}
+  finally{if(btn){btn.disabled=false;btn.textContent="➤";}}
+}
+
+function _nlItemMacros(it){
+  const totalG=it.cantidad*it.gpU,f=totalG/100;
+  return{totalG:Math.round(totalG),cal:Math.round(it.c*f),prot:+(it.p*f).toFixed(1),carb:+(it.ch*f).toFixed(1),fat:+(it.g*f).toFixed(1)};
+}
+function renderNLConfirm(){
+  const list=document.getElementById("nl-items-list");
+  if(!_nlItems?.length){closeNLModal();return;}
+  list.innerHTML=_nlItems.map((it,i)=>{
+    const m=_nlItemMacros(it);
+    const lowConf=it.confianza==="baja";
+    return`<div style="background:var(--surface2);border:1px solid ${lowConf?"var(--amber)":"var(--border2)"};border-radius:var(--r-sm);padding:10px 12px;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:6px">
+        <div style="min-width:0">
+          <div style="font-size:14px;font-weight:500">${it.cat} ${it.nombre}</div>
+          <div style="font-size:10px;color:${it.local?"var(--teal)":"var(--text3)"};margin-top:2px">${it.local?"✓ de tu base":"~ estimado por IA"}${lowConf?' · <span style="color:var(--amber)">⚠ revisá la interpretación</span>':""}</div>
+        </div>
+        <button onclick="nlRemoveItem(${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;line-height:1;flex-shrink:0">×</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <input type="number" value="${it.cantidad}" min="0.25" step="0.25" onchange="nlUpdateQty(${i},+this.value)" style="width:58px;background:var(--surface);border:1px solid var(--border2);border-radius:var(--r-sm);padding:5px 8px;color:var(--text);font-family:var(--mono);font-size:13px;text-align:center;outline:none">
+        <span style="font-size:12px;color:var(--text2)">× ${it.unidad} (≈${Math.round(it.gpU)}g c/u) = <b style="font-family:var(--mono)">${m.totalG}g</b></span>
+      </div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--text3)"><b style="color:var(--accent)">${m.cal} kcal</b> · P:${m.prot}g C:${m.carb}g G:${m.fat}g</div>
+    </div>`;
+  }).join("");
+  const tot=_nlItems.reduce((a,it)=>{const m=_nlItemMacros(it);a.cal+=m.cal;a.prot+=m.prot;a.carb+=m.carb;a.fat+=m.fat;return a;},{cal:0,prot:0,carb:0,fat:0});
+  document.getElementById("nl-totals").innerHTML=`<span><b style="color:var(--accent)">${tot.cal}</b> kcal</span><span>P: ${tot.prot.toFixed(1)}g</span><span>C: ${tot.carb.toFixed(1)}g</span><span>G: ${tot.fat.toFixed(1)}g</span>`;
+}
+function nlUpdateQty(i,val){
+  if(!_nlItems?.[i]||!val||val<=0)return;
+  _nlItems[i].cantidad=val;
+  renderNLConfirm();
+}
+function nlRemoveItem(i){
+  if(!_nlItems)return;
+  _nlItems.splice(i,1);
+  renderNLConfirm();
+}
+function closeNLModal(){document.getElementById("nl-confirm-modal").classList.remove("show");_nlItems=null;}
+
+function confirmNLItems(){
+  if(!_nlItems?.length)return;
+  const td=getTodayData();
+  const customs=getCustomFoods();
+  let savedNew=0;
+  for(const it of _nlItems){
+    const m=_nlItemMacros(it);
+    const qtyLabel=it.cantidad===1?`1 ${it.unidad}`:`${it.cantidad} ${it.unidad}`;
+    td.foods.push({
+      name:`${it.cat} ${it.nombre} (${qtyLabel} ≈${m.totalG}g)`,
+      cal:m.cal,prot:m.prot,carb:m.carb,fat:m.fat
+    });
+    // Alimento nuevo → guardarlo en Despensa con sus porciones aprendidas + compartir
+    if(!it.local&&!customs.find(f=>normalizeStr(f.name)===normalizeStr(it.nombre))){
+      const porciones=[{unidad:it.unidad,gramos:Math.round(it.gpU)}];
+      customs.push({id:getNextFoodId(),name:it.nombre,cal:it.c,prot:it.p,carb:it.ch,fat:it.g,cat:"🤖",notes:"Chat IA",createdAt:TODAY,src:"gemini",porciones});
+      savedNew++;
+      addToSharedFoods({n:it.nombre,c:it.c,p:it.p,ch:it.ch,g:it.g,cat:"🤖",porciones},"gemini"); // fire-and-forget
+    }
+  }
+  if(savedNew)saveCustomFoods(customs);
+  saveTodayData(td);
+  const msg="Agregado ✓"+(savedNew?` · ${savedNew} nuevo${savedNew>1?"s":""} en Despensa`:"");
+  closeNLModal();
+  const input=document.getElementById("nl-food-input");
+  if(input)input.value="";
+  renderHoy();
+  showToast(msg,"ok");
+}
+
+// ─── VOZ (webkitSpeechRecognition — Chrome/Android; en iOS se usa el dictado del teclado) ──
+let _nlRecog=null,_nlListening=false;
+function nlToggleVoice(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR)return;
+  const btn=document.getElementById("nl-mic-btn");
+  if(_nlListening){_nlRecog?.stop();return;}
+  _nlRecog=new SR();
+  _nlRecog.lang="es-AR";
+  _nlRecog.interimResults=false;
+  _nlRecog.onresult=e=>{
+    const t=e.results[0]?.[0]?.transcript||"";
+    const input=document.getElementById("nl-food-input");
+    if(input)input.value=(input.value?input.value+" ":"")+t;
+  };
+  _nlRecog.onend=()=>{_nlListening=false;if(btn){btn.textContent="🎤";btn.style.borderColor="var(--border2)";}};
+  _nlRecog.onerror=()=>{_nlListening=false;if(btn){btn.textContent="🎤";btn.style.borderColor="var(--border2)";}};
+  _nlRecog.start();
+  _nlListening=true;
+  if(btn){btn.textContent="⏹";btn.style.borderColor="var(--red)";}
+}
+// Mostrar el botón de mic solo si el browser lo soporta
+if(window.SpeechRecognition||window.webkitSpeechRecognition){
+  const mb=document.getElementById("nl-mic-btn");
+  if(mb)mb.style.display="block";
+}
+
 // ─── FOTO / VISIÓN ────────────────────────────────────────────────
 // ─── CALIBRACIÓN PERSONAL DE FOTO ─────────────────────────────────
 // Guarda el ratio final/estimado por usuario; con 3+ muestras aplica ajuste silencioso
@@ -2969,8 +3155,11 @@ async function loadSharedFoods(){
     const snap = await fbDb.collection("sharedFoods").where("status","==","approved").get();
     _sfCache = snap.docs.map(d => {
       const dat = d.data();
-      return {n:dat.nombre, c:dat.cal, p:dat.prot, ch:dat.carb, g:dat.fat,
+      const o = {n:dat.nombre, c:dat.cal, p:dat.prot, ch:dat.carb, g:dat.fat,
               cat:dat.cat||"☁️", src:"shared", _sfId:d.id, uploadedBy:dat.uploadedBy};
+      const p0 = dat.porciones?.[0];
+      if(p0?.gramos){o._gu=p0.unidad;o._gpU=p0.gramos;o._allowed=_GEMINI_UNIT_ALLOWED[p0.unidad]||null;}
+      return o;
     });
     _sfCacheTime = Date.now();
   } catch(e) {
@@ -3011,6 +3200,7 @@ async function addToSharedFoods(food, source){
       uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
       source, status
     };
+    if(food.porciones?.length) data.porciones = food.porciones;
     const ref = await fbDb.collection("sharedFoods").add(data);
     _sfCache = null; // invalidar cache
     window._sfLastStatus = status;
@@ -3026,8 +3216,10 @@ async function verifySharedFoodMacros(nombre, macros){
   if(!getGeminiKey()) return "unknown";
   const prompt = `¿Son estos valores nutricionales por 100g razonables para "${nombre}"? Respondé SOLO "si" o "no".\nCal:${macros.cal} Prot:${macros.prot}g Carb:${macros.carb}g Grasas:${macros.fat}g`;
   try {
-    const res = await geminiPost([{role:"user",parts:[{text:prompt}]}]);
-    const text = (res?.candidates?.[0]?.content?.parts?.[0]?.text||"").toLowerCase().trim();
+    const res = await geminiPost(getGeminiKey(), {contents:[{parts:[{text:prompt}]}]});
+    if(!res||!res.ok) return "unknown";
+    const data = await res.json();
+    const text = (data?.candidates?.[0]?.content?.parts?.[0]?.text||"").toLowerCase().trim();
     if(text.startsWith("si")||text.startsWith("sí")) return "ok";
     if(text.startsWith("no")) return "suspicious";
     return "unknown";
@@ -4349,6 +4541,19 @@ if("serviceWorker" in navigator){
       <li>Si podés, dejá un objeto común en el cuadro: un tenedor, una moneda o tu dedo — ayuda a calibrar el tamaño</li>
     </ul>
     <button class="btn primary wide" onclick="dismissCameraTip()">Entendido, sacar foto</button>
+  </div>
+</div>
+
+<!-- NL FOOD CONFIRM MODAL -->
+<div class="modal-overlay" id="nl-confirm-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🗣 Esto entendí</div>
+      <button class="modal-close" onclick="closeNLModal()">×</button>
+    </div>
+    <div id="nl-items-list" style="margin-bottom:12px;max-height:320px;overflow-y:auto"></div>
+    <div id="nl-totals" style="display:flex;justify-content:space-between;font-size:13px;font-family:var(--mono);color:var(--text2);background:var(--surface2);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:14px"></div>
+    <button class="btn primary wide" onclick="confirmNLItems()">Agregar todo al día</button>
   </div>
 </div>
 
