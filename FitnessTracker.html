@@ -565,6 +565,14 @@ select option{background:#18181c}
       Exportar mis datos
     </button>
   </div>
+
+  <div class="prof-sec" style="margin-top:16px;border:1px solid rgba(255,90,90,0.25);border-radius:var(--r);padding:14px">
+    <div class="page-sub" style="margin-bottom:8px;color:var(--red)">Zona peligrosa</div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.4">
+      Elimina tu cuenta y todos tus datos de forma permanente: historial, despensa, rutinas y tu usuario de Google en la app. Los alimentos que compartiste con la comunidad quedan, pero de forma anónima. Esta acción no se puede deshacer.
+    </div>
+    <button class="btn wide" style="border-color:rgba(255,90,90,0.4);color:var(--red)" onclick="deleteMyAccount()">Eliminar mi cuenta</button>
+  </div>
 </div>
 
 </div><!-- /content -->
@@ -964,7 +972,8 @@ const firebaseConfig = {
   messagingSenderId: "143264606965",
   appId: "1:143264606965:web:7cf0032b6a521f8cd473bc"
 };
-const SYNC_KEYS = ["days","profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines"];
+// "days" ya no se sincroniza como campo único: vive en la subcolección months/{YYYY-MM}
+const SYNC_KEYS = ["profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines"];
 let fbAuth = null, fbDb = null, fbUser = null;
 const ADMIN_UID = "27kSUTAXhpg7NPO342S7XXPjwHn1"; // ← ver tu UID en Perfil después de loguearte
 let _sfCache = null, _sfCacheTime = 0;
@@ -1075,15 +1084,46 @@ async function renderRanking(){
 async function syncFromCloud(){
   if(!fbUser || !fbDb) return;
   try {
-    const doc = await fbDb.collection("users").doc(fbUser.uid).get();
+    const userRef = fbDb.collection("users").doc(fbUser.uid);
+    const doc = await userRef.get();
     if(doc.exists){
       const data = doc.data();
       for(const key of SYNC_KEYS){
         if(data[key] !== undefined) ss(key, data[key]);
       }
-      renderHoy();
-      showToast("Datos sincronizados ✓","ok");
+      // Migración en la nube: campo viejo "days" → subcolección months (una sola vez).
+      // Batch atómico: escribe todos los meses Y borra el campo viejo juntos —
+      // si algo falla, no se pierde nada y se reintenta en el próximo login.
+      if(data.days !== undefined){
+        const byMonth={};
+        for(const d of Object.keys(data.days)){
+          const m=monthOf(d);
+          if(!byMonth[m])byMonth[m]={};
+          byMonth[m][d]=data.days[d];
+        }
+        const batch=fbDb.batch();
+        for(const m of Object.keys(byMonth)){
+          batch.set(userRef.collection("months").doc(m),
+            {days:byMonth[m],updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+        }
+        batch.update(userRef,{days:firebase.firestore.FieldValue.delete()});
+        await batch.commit();
+        console.log("Migración cloud days→months OK:",Object.keys(byMonth).length,"meses");
+      }
     }
+    // Bajar la subcolección de meses → claves locales days_YYYY-MM
+    const monthsSnap = await userRef.collection("months").get();
+    if(!monthsSnap.empty){
+      const list=new Set(getMonthList());
+      monthsSnap.forEach(md=>{
+        ss("days_"+md.id, md.data().days||{});
+        list.add(md.id);
+      });
+      ss("daysMonths",[...list].sort());
+      _daysCache=null; // invalidar la vista fusionada
+    }
+    renderHoy();
+    showToast("Datos sincronizados ✓","ok");
   } catch(e){ console.warn("syncFromCloud error:", e); }
 }
 
@@ -1713,7 +1753,83 @@ const ROUTINE_BASE = {
 function ls(k,d){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):d}catch{return d}}
 function ss(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
 function getProfile(){return ls("profile",{peso:78,altura:173,edad:20,sexo:"m",act:1.375,obj:"deficit"})}
-function getDays(){return ls("days",{})}
+// ─── DÍAS PARTICIONADOS POR MES ───────────────────────────────────
+// localStorage: days_YYYY-MM (un objeto {fecha:datos} por mes) + daysMonths (índice)
+// Firestore: users/{uid}/months/{YYYY-MM} — evita el techo de 1MB por documento
+// y cada guardado sube SOLO el mes tocado en vez de todo el historial.
+// getDays() devuelve la vista completa fusionada (cache en memoria, se arma
+// una sola vez por sesión) para que streak/gráficos/export sigan funcionando igual.
+let _daysCache=null;
+function monthOf(date){return date.slice(0,7);}
+function getMonthList(){return ls("daysMonths",[]);}
+
+// Migración automática del formato viejo (clave única "days") → particionado.
+// Verifica que TODOS los días migrados se relean correctamente antes de borrar el viejo.
+function migrateDaysToMonths(){
+  const raw=localStorage.getItem("days");
+  if(raw===null)return;
+  try{
+    const old=JSON.parse(raw)||{};
+    const byMonth={};
+    for(const d of Object.keys(old)){
+      const m=monthOf(d);
+      if(!byMonth[m])byMonth[m]={};
+      byMonth[m][d]=old[d];
+    }
+    const months=Object.keys(byMonth).sort();
+    for(const m of months)ss("days_"+m,byMonth[m]);
+    ss("daysMonths",months);
+    // Verificación: releer cada mes y comparar contra el original
+    let ok=true,count=0;
+    for(const m of months){
+      const back=ls("days_"+m,{});
+      for(const d of Object.keys(byMonth[m])){
+        if(!back[d]){ok=false;break;}
+        count++;
+      }
+      if(!ok)break;
+    }
+    if(ok&&count===Object.keys(old).length){
+      localStorage.removeItem("days"); // limpiar el formato viejo SOLO tras verificar
+      console.log("Migración days→months OK:",count,"días en",months.length,"meses");
+    }else{
+      console.warn("Migración days→months incompleta — se conserva el formato viejo");
+    }
+  }catch(e){console.warn("Error en migración days→months:",e);}
+}
+
+function getDays(){
+  if(_daysCache)return _daysCache;
+  migrateDaysToMonths();
+  const out={};
+  for(const m of getMonthList())Object.assign(out,ls("days_"+m,{}));
+  _daysCache=out;
+  return out;
+}
+
+// Guarda el historial escribiendo SOLO los meses de las fechas tocadas
+function saveDays(allDays,dates){
+  _daysCache=allDays;
+  const months=[...new Set(dates.map(monthOf))];
+  const list=new Set(getMonthList());
+  for(const m of months){
+    const mo={};
+    for(const d of Object.keys(allDays))if(monthOf(d)===m)mo[d]=allDays[d];
+    ss("days_"+m,mo);
+    list.add(m);
+    syncMonthToCloud(m,mo);
+  }
+  ss("daysMonths",[...list].sort());
+}
+
+async function syncMonthToCloud(m,monthObj){
+  if(!fbUser||!fbDb)return;
+  try{
+    await fbDb.collection("users").doc(fbUser.uid).collection("months").doc(m)
+      .set({days:monthObj,updatedAt:firebase.firestore.FieldValue.serverTimestamp()});
+  }catch(e){console.warn("syncMonthToCloud error:",e);}
+}
+
 function getDayData(date){
   const d=getDays();
   return d[date]||{foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
@@ -1721,8 +1837,7 @@ function getDayData(date){
 function saveDayData(date,data){
   const d=getDays();
   d[date]=data;
-  ss("days",d);
-  syncToCloud("days",d);
+  saveDays(d,[date]);
 }
 function getTodayData(){return getDayData(selectedHoyDate)}
 function saveTodayData(data){saveDayData(selectedHoyDate,data)}
@@ -2471,7 +2586,7 @@ function saveExSets(ei,numSets,date){
   if(!allDays[date].gym)allDays[date].gym={};
   if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};
   allDays[date].gym[currentGymDay][ei]=sets;
-  ss("days",allDays);syncToCloud("days",allDays);
+  saveDays(allDays,[date]);
   const msg=document.getElementById("smsg-"+ei);if(msg){msg.textContent="✓";setTimeout(()=>msg.textContent="",2000);}
   if(date===TODAY){const td=getTodayData();if(td.gymOn)renderHoy();}
   // Cronómetro de sesión: arrancar en el primer save del día
@@ -2492,7 +2607,7 @@ function saveAllSets(numEx,date){
   if(currentSessionRoutineId)allDays[date].gymRoutineId=currentSessionRoutineId;
   const elapsed=gymElapsedSecs();
   if(elapsed>60)allDays[date].gymDuration=elapsed;
-  ss("days",allDays);syncToCloud("days",allDays);
+  saveDays(allDays,[date]);
   // Detener timers
   stopRestTimer();
   stopGymTimer();
@@ -3717,7 +3832,7 @@ function toggleSetDS(ei,si){
   if(!allDays[date].gym)allDays[date].gym={};
   if(!allDays[date].gym[currentGymDay])allDays[date].gym[currentGymDay]={};
   allDays[date].gym[currentGymDay][ei]=sets;
-  ss("days",allDays);
+  saveDays(allDays,[date]);
   renderGymEx();
 }
 
@@ -4372,7 +4487,7 @@ function finishGymSession(){
     const allDays=getDays();
     if(!allDays[TODAY])allDays[TODAY]={foods:[],steps:0,gym:{},gymOn:false,boxingOn:false,boxingDuration:90,extraActivities:[]};
     allDays[TODAY].gymDuration=elapsed;
-    ss("days",allDays);syncToCloud("days",allDays);
+    saveDays(allDays,[TODAY]);
   }
   stopGymTimer();
   showToast(elapsed>60?"Sesión finalizada · "+formatDuration(elapsed):"Sesión finalizada","ok");
@@ -4388,7 +4503,7 @@ function restoreGymTimer(){
     if(elapsed>60){
       const date=new Date(start).toISOString().split("T")[0];
       const allDays=getDays();
-      if(allDays[date]){allDays[date].gymDuration=elapsed;ss("days",allDays);syncToCloud("days",allDays);}
+      if(allDays[date]){allDays[date].gymDuration=elapsed;saveDays(allDays,[date]);}
     }
     stopGymTimer();
     showToast("Sesión anterior cerrada automáticamente ("+formatDuration(elapsed)+")","ok");
@@ -4592,11 +4707,60 @@ function saveRecipeToDespensa(){
   showToast(name+" guardado en Despensa ✓","ok");
 }
 
+// ─── BORRADO DE CUENTA ────────────────────────────────────────────
+async function deleteMyAccount(){
+  if(!fbUser){showToast("Iniciá sesión primero para eliminar tu cuenta","err");return;}
+  const typed=prompt("⚠️ Esto elimina PERMANENTEMENTE tu cuenta y todos tus datos: historial, despensa, rutinas y tu usuario.\n\nLos alimentos que compartiste con la comunidad quedan pero anonimizados.\n\nPara confirmar, escribí: ELIMINAR");
+  if(typed===null)return; // canceló
+  if(typed.trim().toUpperCase()!=="ELIMINAR"){showToast("Confirmación incorrecta — no se borró nada","err");return;}
+  const uid=fbUser.uid;
+  showToast("Eliminando tu cuenta...","ok");
+  try{
+    // Helper: commitear operaciones en batches de 400 (límite de Firestore: 500)
+    const inBatches=async(docs,op)=>{
+      let batch=fbDb.batch(),n=0;const commits=[];
+      docs.forEach(d=>{op(batch,d);if(++n===400){commits.push(batch.commit());batch=fbDb.batch();n=0;}});
+      if(n)commits.push(batch.commit());
+      await Promise.all(commits);
+    };
+    // 1) Anonimizar aportes a sharedFoods (quedan para la comunidad)
+    const mine=await fbDb.collection("sharedFoods").where("uploadedBy","==",uid).get();
+    await inBatches(mine.docs,(b,d)=>b.update(d.ref,{uploadedBy:"anonimo"}));
+    // 2) Borrar subcolección months (los docs de subcolecciones NO se borran con el padre)
+    const months=await fbDb.collection("users").doc(uid).collection("months").get();
+    await inBatches(months.docs,(b,d)=>b.delete(d.ref));
+    // 3) Documento principal + entrada de leaderboard
+    await fbDb.collection("users").doc(uid).delete();
+    await fbDb.collection("leaderboard").doc(uid).delete();
+    // 4) Cuenta de Firebase Auth — puede exigir login reciente
+    try{
+      await fbUser.delete();
+    }catch(e){
+      if(e.code==="auth/requires-recent-login"){
+        showToast("Confirmá tu identidad para terminar","ok");
+        await fbUser.reauthenticateWithPopup(new firebase.auth.GoogleAuthProvider());
+        await fbUser.delete();
+      }else throw e;
+    }
+    // 5) Limpiar todo lo local y despedida
+    localStorage.clear();
+    _daysCache=null;
+    document.body.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px;text-align:center;font-family:var(--font);background:var(--bg);color:var(--text)">
+      <div style="font-size:48px;margin-bottom:16px">👋</div>
+      <div style="font-size:20px;font-weight:600;margin-bottom:8px">Tu cuenta fue eliminada</div>
+      <div style="font-size:14px;color:var(--text3);line-height:1.6;max-width:300px">Todos tus datos fueron borrados de forma permanente. Gracias por haber usado la app. Si algún día querés volver, podés crear una cuenta nueva desde cero.</div>
+    </div>`;
+  }catch(e){
+    console.error("deleteMyAccount:",e);
+    showToast("Error al eliminar: "+(e.message||e.code||"desconocido"),"err");
+  }
+}
+
 // ─── OFFLINE / ONLINE ──────────────────────────────────────────────
 window.addEventListener("online",()=>{
   showToast("Señal recuperada — sincronizando...","ok");
   if(fbUser&&fbDb){
-    const allDays=getDays();syncToCloud("days",allDays);
+    for(const m of getMonthList())syncMonthToCloud(m,ls("days_"+m,{}));
     for(const k of SYNC_KEYS){const v=ls(k,null);if(v!==null)syncToCloud(k,v);}
   }
 });
