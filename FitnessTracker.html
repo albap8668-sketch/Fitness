@@ -1239,7 +1239,7 @@ const LOCAL_DB = [
   {n:"Fideos con salsa tomate (plato)",c:150,p:6,ch:28,g:2.5,cat:"🍝",src:"base"},
   {n:"Asado de tira cocido",c:290,p:22,ch:0,g:22,cat:"🥩",src:"base"},
   // ─── REGIONALES Y SALTEÑOS ────────────────────────────────────
-  {n:"Locro (plato)",c:180,p:9,ch:22,g:6,cat:"🌶️",src:"regional"},
+  {n:"Locro (porcion promedio casera)",c:150,p:8,ch:16,g:6,cat:"🌶️",src:"regional",reg:"transversal"},
   {n:"Empanada saltena de carne (1 unidad)",c:270,p:10,ch:27,g:14,cat:"🌶️",src:"regional"},
   {n:"Empanada saltena de pollo (1 unidad)",c:230,p:11,ch:25,g:10,cat:"🌶️",src:"regional"},
   {n:"Tamales saltenos (1 unidad)",c:220,p:8,ch:28,g:8,cat:"🌶️",src:"regional"},
@@ -1262,6 +1262,77 @@ const LOCAL_DB = [
   {n:"Dulce de cayote (1 cda)",c:60,p:0.2,ch:15,g:0,cat:"🍰",src:"regional"},
   {n:"Alfajor norteño (1 unidad)",c:280,p:4,ch:42,g:11,cat:"🍰",src:"regional"},
   {n:"Arrope de tuna (1 cda)",c:55,p:0.1,ch:14,g:0,cat:"🍯",src:"regional"},
+  // ─── REGIONALES ARGENTINA (por región) ───────────────────────
+  // Criterio de datos: valores por 100g. Carnes/pescados: USDA FoodData Central.
+  // Platos típicos en tablas argentinas (SARA/ARGENFOODS): valor de tabla.
+  // Platos compuestos sin tabla (guisos, curanto, revuelto): calculado desde la
+  // receta estándar típica, indicado como "porcion promedio casera" en el nombre.
+  // ── NOA ──
+  {n:"Tamal jujeño (1 unidad)",c:195,p:9,ch:24,g:7,cat:"🌶️",src:"regional",reg:"NOA"},
+  {n:"Calapurca (porcion promedio casera)",c:150,p:10,ch:14,g:6,cat:"🌶️",src:"regional",reg:"NOA"},
+  {n:"Chanfaina (porcion promedio casera)",c:165,p:13,ch:8,g:9,cat:"🌶️",src:"regional",reg:"NOA"},
+  {n:"Empanada tucumana de matambre (1 unidad)",c:245,p:11,ch:24,g:12,cat:"🥟",src:"regional",reg:"NOA",t:["empanada jugosa"]},
+  {n:"Sanguche de milanesa tucumano",c:230,p:12,ch:24,g:10,cat:"🥪",src:"regional",reg:"NOA",t:["sandwich de milanesa","sanguche milanga"]},
+  {n:"Quesillo norteño",c:280,p:22,ch:3,g:20,cat:"🧀",src:"regional",reg:"NOA"},
+  {n:"Quesillo con cayote y nuez (porcion)",c:230,p:9,ch:26,g:10,cat:"🍰",src:"regional",reg:"NOA",t:["quesillo con miel de caña"]},
+  {n:"Gaznate (1 unidad)",c:420,p:5,ch:55,g:20,cat:"🍰",src:"regional",reg:"NOA"},
+  // ── NEA / LITORAL ──
+  {n:"Chipa (1 unidad)",c:340,p:9,ch:38,g:17,cat:"🧀",src:"regional",reg:"NEA",t:["chipacito","chipita","pan de queso"]},
+  {n:"Mbeju (1 unidad)",c:385,p:8,ch:35,g:24,cat:"🧀",src:"regional",reg:"NEA",t:["mbeyu","beju"]},
+  {n:"Sopa paraguaya (porcion)",c:245,p:9,ch:22,g:14,cat:"🌽",src:"regional",reg:"NEA"},
+  {n:"Chipa guazu (porcion)",c:200,p:7,ch:20,g:11,cat:"🌽",src:"regional",reg:"NEA",t:["chipa guasu"]},
+  {n:"Reviro (porcion)",c:380,p:8,ch:55,g:14,cat:"🍞",src:"regional",reg:"NEA"},
+  {n:"Vori vori (porcion promedio casera)",c:120,p:7,ch:14,g:4,cat:"🍲",src:"regional",reg:"NEA",t:["bori bori"]},
+  {n:"Surubi a la parrilla",c:135,p:22,ch:0,g:5,cat:"🐟",src:"regional",reg:"NEA",t:["pescado de rio"]},
+  {n:"Pacu a la parrilla",c:210,p:20,ch:0,g:14,cat:"🐟",src:"regional",reg:"NEA",t:["pescado de rio"]},
+  {n:"Dorado a la parrilla",c:130,p:22,ch:0,g:4.5,cat:"🐟",src:"regional",reg:"NEA",t:["pescado de rio"]},
+  {n:"Empanada de pescado de rio (1 unidad)",c:220,p:12,ch:24,g:9,cat:"🥟",src:"regional",reg:"NEA"},
+  {n:"Payagua mascada (1 unidad)",c:270,p:10,ch:26,g:14,cat:"🌶️",src:"regional",reg:"NEA",t:["torta de mandioca y carne"]},
+  // ── CUYO ──
+  {n:"Tomatican (porcion promedio casera)",c:95,p:6,ch:8,g:4.5,cat:"🍅",src:"regional",reg:"Cuyo"},
+  {n:"Cabrito asado (chivito cuyano)",c:190,p:27,ch:0,g:9,cat:"🥩",src:"regional",reg:"Cuyo",t:["chivo asado"]},
+  {n:"Sopaipilla (1 unidad)",c:330,p:5,ch:42,g:16,cat:"🍞",src:"regional",reg:"Cuyo",t:["sopaipillas"]},
+  {n:"Empanada mendocina (1 unidad)",c:260,p:11,ch:25,g:13,cat:"🥟",src:"regional",reg:"Cuyo"},
+  // ── CENTRO / CÓRDOBA ──
+  {n:"Colacion cordobesa (1 unidad)",c:390,p:4,ch:65,g:13,cat:"🍰",src:"regional",reg:"Centro",t:["colaciones"]},
+  {n:"Fernet con coca (vaso)",c:85,p:0,ch:8,g:0,cat:"🥃",src:"regional",reg:"Centro",t:["fernandito","fernet cola"]},
+  {n:"Salame de Colonia Caroya",c:420,p:24,ch:1,g:36,cat:"🥩",src:"regional",reg:"Centro",t:["salame de oncativo","picada"]},
+  {n:"Criollito cordobes (1 unidad)",c:440,p:7,ch:52,g:23,cat:"🥐",src:"regional",reg:"Centro",t:["criollos","bizcocho de grasa"]},
+  // ── BUENOS AIRES / PAMPA ──
+  {n:"Provoleta a la parrilla",c:350,p:24,ch:2,g:28,cat:"🧀",src:"regional",reg:"Pampa",t:["provolone"]},
+  {n:"Vitel tone (porcion)",c:230,p:18,ch:2,g:16,cat:"🍽️",src:"regional",reg:"Pampa",t:["vitel thone","peceto con salsa de atun"]},
+  {n:"Matambre a la pizza (porcion)",c:280,p:22,ch:5,g:19,cat:"🥩",src:"regional",reg:"Pampa"},
+  {n:"Sanguche de bondiola",c:265,p:15,ch:22,g:13,cat:"🥪",src:"regional",reg:"Pampa",t:["sandwich de bondiola"]},
+  {n:"Faina (porcion)",c:290,p:9,ch:32,g:14,cat:"🍕",src:"regional",reg:"Pampa",t:["fainá con pizza"]},
+  {n:"Pizza de molde porteña (porcion)",c:265,p:11,ch:33,g:10,cat:"🍕",src:"regional",reg:"Pampa",t:["pizza al molde"]},
+  {n:"Revuelto Gramajo (porcion promedio casera)",c:190,p:10,ch:14,g:11,cat:"🍳",src:"regional",reg:"Pampa"},
+  // ── PATAGONIA ──
+  {n:"Cordero patagonico asado",c:255,p:25,ch:0,g:17,cat:"🥩",src:"regional",reg:"Patagonia",t:["cordero al asador"]},
+  {n:"Ciervo asado",c:150,p:30,ch:0,g:3.2,cat:"🥩",src:"regional",reg:"Patagonia",t:["venado"]},
+  {n:"Jabali asado",c:155,p:28,ch:0,g:4.4,cat:"🥩",src:"regional",reg:"Patagonia"},
+  {n:"Curanto (porcion promedio casera)",c:175,p:16,ch:10,g:8,cat:"🍲",src:"regional",reg:"Patagonia"},
+  {n:"Torta galesa (porcion)",c:380,p:5,ch:58,g:14,cat:"🍰",src:"regional",reg:"Patagonia",t:["torta negra galesa"]},
+  {n:"Calafate (fruta)",c:60,p:1,ch:14,g:0.3,cat:"🫐",src:"regional",reg:"Patagonia"},
+  {n:"Centolla cocida",c:97,p:19,ch:0,g:1.5,cat:"🦀",src:"regional",reg:"Patagonia",t:["cangrejo"]},
+  // ── TRANSVERSALES ──
+  {n:"Pastelito de membrillo frito (1 unidad)",c:380,p:4,ch:48,g:19,cat:"🍰",src:"regional",reg:"transversal",t:["pastelito de batata","pastelitos criollos","9 de julio"]},
+  {n:"Torta frita (1 unidad)",c:400,p:6,ch:48,g:20,cat:"🍞",src:"regional",reg:"transversal",t:["tortas fritas"]},
+  {n:"Mate cocido (taza sin azucar)",c:2,p:0.1,ch:0.3,g:0,cat:"🧉",src:"regional",reg:"transversal"},
+  {n:"Rosca de Pascua (porcion)",c:330,p:7,ch:52,g:10,cat:"🍰",src:"regional",reg:"transversal"},
+  {n:"Pan dulce (porcion)",c:390,p:8,ch:56,g:14,cat:"🍰",src:"regional",reg:"transversal",t:["pan dulce navideño"]},
+  {n:"Ensalada rusa (porcion)",c:140,p:2.5,ch:12,g:9,cat:"🥗",src:"regional",reg:"transversal"},
+  {n:"Matambre casero arrollado",c:195,p:22,ch:2,g:11,cat:"🥩",src:"regional",reg:"transversal",t:["matambre relleno"]},
+  {n:"Mondongo guisado (porcion promedio casera)",c:110,p:10,ch:7,g:4.5,cat:"🍲",src:"regional",reg:"transversal",t:["buseca","guiso de mondongo"]},
+  {n:"Guiso de lentejas (porcion promedio casera)",c:120,p:7,ch:15,g:3.5,cat:"🍲",src:"regional",reg:"transversal"},
+  {n:"Guiso carrero (porcion promedio casera)",c:140,p:8,ch:16,g:5,cat:"🍲",src:"regional",reg:"transversal",t:["guiso de arroz","guiso de fideos"]},
+  {n:"Polenta con tuco (porcion)",c:110,p:4,ch:16,g:3.5,cat:"🌽",src:"regional",reg:"transversal"},
+  {n:"Ñoquis con estofado (porcion)",c:180,p:7,ch:28,g:5,cat:"🍝",src:"regional",reg:"transversal",t:["noquis","gnocchi","ñoquis del 29"]},
+  {n:"Tallarines caseros con salsa (porcion)",c:160,p:6,ch:26,g:3.5,cat:"🍝",src:"regional",reg:"transversal",t:["pasta casera"]},
+  {n:"Canelones de verdura (porcion)",c:155,p:7,ch:14,g:8,cat:"🍝",src:"regional",reg:"transversal",t:["canelon"]},
+  {n:"Tarta de jamon y queso (porcion)",c:265,p:11,ch:20,g:15,cat:"🍽️",src:"regional",reg:"transversal"},
+  {n:"Tarta pascualina (porcion)",c:210,p:8,ch:18,g:12,cat:"🍽️",src:"regional",reg:"transversal",t:["tarta de acelga y huevo"]},
+  {n:"Sandwich de miga simple (1 unidad)",c:250,p:11,ch:28,g:10,cat:"🥪",src:"regional",reg:"transversal",t:["sanguche de miga"]},
+  {n:"Sandwich de miga triple (1 unidad)",c:270,p:12,ch:26,g:13,cat:"🥪",src:"regional",reg:"transversal",t:["sanguche de miga triple"]},
   // ── McDONALD'S ───────────────────────────────────────────────
   {n:"McDonalds Big Mac",c:550,p:25,ch:47,g:28,cat:"🍔",src:"fastfood"},
   {n:"McDonalds McPollo",c:420,p:24,ch:41,g:16,cat:"🍔",src:"fastfood"},
@@ -1433,7 +1504,6 @@ const LOCAL_DB = [
   {n:"Yogur con frutas",c:90,p:3.5,ch:16,g:1.2,cat:"🫙",src:"base"},
   // ── CEREALES Y PANIFICADOS ADICIONALES ───────────────────────
   {n:"Arroz yamaní cocido",c:110,p:2.8,ch:23,g:0.8,cat:"🍚",src:"base"},
-  {n:"Quinoa cocida",c:120,p:4.4,ch:21,g:1.9,cat:"🌾",src:"regional"},
   {n:"Bulgur cocido",c:83,p:3,ch:18,g:0.2,cat:"🌾",src:"base"},
   {n:"Cus cus cocido",c:112,p:3.8,ch:23,g:0.2,cat:"🌾",src:"base"},
   {n:"Mijo cocido",c:119,p:3.5,ch:23,g:1,cat:"🌾",src:"base"},
@@ -1750,7 +1820,11 @@ function getAllFoods(){
 function searchFoods(q){
   const nq=normalizeStr(q);
   if(!nq) return [];
-  return getAllFoods().filter(f=>normalizeStr(f.n).includes(nq)).slice(0,14);
+  // Matchea nombre + tags de sinónimos (ej. "chipacito" encuentra "Chipa")
+  return getAllFoods().filter(f=>{
+    if(normalizeStr(f.n).includes(nq))return true;
+    return f.t?f.t.some(tag=>normalizeStr(tag).includes(nq)):false;
+  }).slice(0,14);
 }
 let searchTimer=null;
 function onSearchInput(){
@@ -3298,8 +3372,30 @@ const FOOD_UNIT_RULES = [
    unit:"unidad", gpU:null, allowed:["unidad","medio","porcion","g"]},
   // Pizza — por porción/tajada
   {kw:["pizza","fugazza","fainá","faina"],            unit:"porcion", gpU:120,  allowed:["porcion","medio","plato","g"]},
-  // Empanadas, tamales, humitas — por unidad discreta
-  {kw:["empanada","tamale","tamales","humita"],        unit:"unidad",  gpU:100,  allowed:["unidad","g"]},
+  // Empanada tucumana — más chica que la salteña
+  {kw:["empanada tucumana"],                           unit:"unidad",  gpU:70,   allowed:["unidad","g"]},
+  // Tamales — unidad grande (~150g)
+  {kw:["tamal","tamale","tamales"],                    unit:"unidad",  gpU:150,  allowed:["unidad","g"]},
+  // Empanadas, humitas — por unidad discreta
+  {kw:["empanada","humita"],                           unit:"unidad",  gpU:100,  allowed:["unidad","g"]},
+  // Chipá guazú y sopa paraguaya — porción de fuente, no unidad chica
+  {kw:["chipa guazu","sopa paraguaya"],                unit:"porcion", gpU:200,  allowed:["porcion","medio","g"]},
+  // Chipá / mbejú — unidades chicas
+  {kw:["chipa","mbeju"],                               unit:"unidad",  gpU:40,   allowed:["unidad","g"]},
+  // Panificados criollos fritos/hojaldrados — por unidad
+  {kw:["torta frita","pastelito","sopaipilla","criollito","colacion","gaznate"],
+                                                       unit:"unidad",  gpU:55,   allowed:["unidad","g"]},
+  // Sánguches grandes (milanesa, bondiola) — por unidad
+  {kw:["sanguche de milanesa","sanguche de bondiola"], unit:"unidad",  gpU:400,  allowed:["unidad","medio","g"]},
+  // Sándwich de miga — por unidad chica
+  {kw:["miga"],                                        unit:"unidad",  gpU:60,   allowed:["unidad","g"]},
+  // Guisos y platos de olla — por plato hondo
+  {kw:["guiso","locro","mondongo","buseca","curanto","calapurca","chanfaina","vori vori","tomatican","estofado"],
+                                                       unit:"plato",   gpU:380,  allowed:["plato","porcion","medio","g"]},
+  // Provoleta / vitel toné / matambre a la pizza — por porción
+  {kw:["provoleta","vitel","matambre a la pizza"],     unit:"porcion", gpU:140,  allowed:["porcion","medio","g"]},
+  // Fernet con coca — por vaso
+  {kw:["fernet"],                                      unit:"vaso",    gpU:250,  allowed:["vaso","copa","g"]},
   // Nuggets / presas — por unidad
   {kw:["nuggets","presa de pollo","popcorn chicken"],  unit:"unidad",  gpU:45,   allowed:["unidad","g"]},
   // Helado bochas artesanales — por bocha (~80g c/u)
