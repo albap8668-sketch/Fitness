@@ -575,6 +575,11 @@ select option{background:#18181c}
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:5px"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Exportar mis datos
     </button>
+    <button class="btn wide" style="margin-top:8px" onclick="exportarBackupJSON()">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:inline;vertical-align:-2px;margin-right:5px"><path d="M12 3v12"/><path d="m8 11 4 4 4-4"/><rect x="4" y="17" width="16" height="4" rx="1"/></svg>
+      Backup completo (JSON)
+    </button>
+    <div style="font-size:11px;color:var(--text3);margin-top:6px;line-height:1.4">El backup JSON incluye todo tu estado local (historial, despensa, rutinas, perfil) y sirve para restaurar si algo sale mal. No incluye tu API Key de Gemini.</div>
   </div>
 
   <div class="prof-sec" style="margin-top:16px;border:1px solid rgba(255,90,90,0.25);border-radius:var(--r);padding:14px">
@@ -3054,6 +3059,25 @@ function exportarCSV(){
   showToast("Descargando CSV ✓","ok");
 }
 
+// Backup completo del estado local (todas las claves salvo la API Key de Gemini)
+function exportarBackupJSON(){
+  const dump = {_backup: "fitness-tracker", _fecha: new Date().toISOString(), datos: {}};
+  for(let i = 0; i < localStorage.length; i++){
+    const k = localStorage.key(i);
+    if(k === "geminiKey") continue; // secreto: nunca sale del dispositivo
+    dump.datos[k] = localStorage.getItem(k);
+  }
+  const blob = new Blob([JSON.stringify(dump, null, 1)], {type: "application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "fitness_backup_" + TODAY + ".json";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
+  showToast("Backup JSON descargado ✓","ok");
+}
+
 // ─── GEMINI ───────────────────────────────────────────────────────
 function getGeminiKey(){return localStorage.getItem("geminiKey")||"";}
 function saveGeminiKey(){const k=document.getElementById("p-gemini-key").value.trim();if(!k){showToast("Ingresá una API Key","err");return;}localStorage.setItem("geminiKey",k);showToast("API Key guardada ✓","ok");}
@@ -4890,7 +4914,7 @@ async function deleteMyAccount(){
     };
     // 1) Anonimizar aportes a sharedFoods (quedan para la comunidad)
     const mine=await fbDb.collection("sharedFoods").where("uploadedBy","==",uid).get();
-    await inBatches(mine.docs,(b,d)=>b.update(d.ref,{uploadedBy:"anonimo"}));
+    await inBatches(mine.docs,(b,d)=>b.update(d.ref,{uploadedBy:"deleted"}));
     // 2) Borrar subcolección months (los docs de subcolecciones NO se borran con el padre)
     const months=await fbDb.collection("users").doc(uid).collection("months").get();
     await inBatches(months.docs,(b,d)=>b.delete(d.ref));
