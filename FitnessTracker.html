@@ -346,28 +346,18 @@ select option{background:#18181c}
   </div>
   <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
   <input type="file" id="label-input" accept="image/*" capture="environment" style="display:none" onchange="onNutritionLabelSelected(this)">
-  <!-- REGISTRO CONVERSACIONAL -->
-  <div class="food-search-wrap">
-    <div class="search-box" style="border-color:rgba(200,245,100,0.3)">
-      <div class="search-top">
-        <span style="font-size:14px">🗣</span>
-        <span style="font-size:12px;color:var(--text2)">Contá qué comiste — la IA lo registra</span>
-      </div>
-      <div style="display:flex;gap:6px;align-items:stretch;min-width:0">
-        <input type="text" id="nl-food-input" placeholder="ej: 2 milanesas con puré..." autocomplete="off" style="flex:1;min-width:0;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:14px;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();parseNaturalFood();}">
-        <button id="nl-mic-btn" onclick="nlToggleVoice()" title="Dictar por voz" style="display:none;flex-shrink:0;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 12px;font-size:16px;cursor:pointer">🎤</button>
-        <button id="nl-send-btn" onclick="parseNaturalFood()" title="Registrar" style="flex-shrink:0;background:var(--accent);border:none;border-radius:var(--r-sm);padding:0 14px;font-size:15px;font-weight:700;color:#0e0e10;cursor:pointer">➤</button>
-      </div>
-    </div>
-  </div>
-
+  <!-- ENTRADA UNIFICADA: buscador + registro conversacional -->
   <div class="food-search-wrap" id="food-search-wrap">
     <div class="search-box">
       <div class="search-top">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text3)" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <span style="font-size:12px;color:var(--text2)">Buscá un alimento</span>
+        <span style="font-size:12px;color:var(--text2)">Buscá o contá qué comiste</span>
       </div>
-      <input type="text" class="search-input" id="food-search" placeholder="ej: arroz, pollo, banana, locro..." autocomplete="off" oninput="onSearchInput()" onfocus="onSearchFocus()">
+      <div style="display:flex;gap:6px;align-items:stretch;min-width:0">
+        <input type="text" class="search-input" id="food-search" placeholder="Buscá o contá qué comiste..." autocomplete="off" style="flex:1;min-width:0" oninput="onSearchInput()" onfocus="onSearchFocus()" onkeydown="if(event.key==='Enter'){event.preventDefault();sendUnifiedInput();}">
+        <button id="nl-mic-btn" onclick="nlToggleVoice()" title="Dictar por voz" style="display:none;flex-shrink:0;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 12px;font-size:16px;cursor:pointer">🎤</button>
+        <button id="nl-send-btn" onclick="sendUnifiedInput()" title="Registrar con IA" style="flex-shrink:0;background:var(--accent);border:none;border-radius:var(--r-sm);padding:0 14px;font-size:15px;font-weight:700;color:#0e0e10;cursor:pointer">➤</button>
+      </div>
       <div class="search-tags">
         <button class="stag" onclick="quickSearch('pollo')">🍗 Pollo</button>
         <button class="stag" onclick="quickSearch('arroz')">🍚 Arroz</button>
@@ -426,6 +416,7 @@ select option{background:#18181c}
     <button class="rest-preset" id="rng-mes" onclick="setSemanaRange('mes')">Mes</button>
     <button class="rest-preset" id="rng-anio" onclick="setSemanaRange('anio')">Año</button>
   </div>
+  <div id="insights-box" style="padding:0 18px"></div>
   <div class="wk-grid" id="wk-grid"></div>
   <div id="day-det-box"></div>
   <div class="sec-label">Resumen</div>
@@ -1957,6 +1948,51 @@ function searchFoods(q){
     return f.t?f.t.some(tag=>normalizeStr(tag).includes(nq)):false;
   }).slice(0,14);
 }
+// ─── DETECCIÓN LOCAL DE ENTRADA COMPUESTA ─────────────────────────
+// "milanesa con puré" → 2 partes; si TODAS matchean local, no hace falta IA.
+const _NL_QTY_WORDS={"un":1,"una":1,"uno":1,"dos":2,"tres":3,"cuatro":4,"cinco":5,"seis":6,"media":0.5,"medio":0.5};
+const _NL_UNIT_HINT=/\b(vaso|taza|plato|copa|lata|feta|rodaja|rebanada|cda|cucharada|cucharadita|ml|litro|porcion|porción)s?\s+de\b/i;
+function parseCompoundLocal(q){
+  const parts=q.split(/\s+con\s+|\s+y\s+|\s*,\s*|\s*\+\s*/i).map(s=>s.trim()).filter(s=>s.length>=3);
+  if(parts.length<2)return null;
+  const hasUnits=_NL_UNIT_HINT.test(q);
+  const items=parts.map(p=>{
+    let qty=1,term=p;
+    const mNum=p.match(/^(\d+(?:[.,]\d+)?)\s+(.+)$/);
+    if(mNum){qty=parseFloat(mNum[1].replace(",","."));term=mNum[2];}
+    else{
+      const mW=p.match(/^(\S+)\s+(.+)$/);
+      if(mW&&_NL_QTY_WORDS[normalizeStr(mW[1])]!=null){qty=_NL_QTY_WORDS[normalizeStr(mW[1])];term=mW[2];}
+    }
+    // Singularizar para que "empanadas" matchee "Empanada de carne"
+    const nt=normalizeStr(term),sing=nt.replace(/(es|s)$/,"");
+    let matches=searchFoods(term);
+    if(!matches.length&&sing!==nt&&sing.length>=3)matches=searchFoods(sing);
+    // Ranking: nombre exacto > empieza con el término > lo contiene
+    const best=matches.find(f=>normalizeStr(f.n)===nt)
+      ||matches.find(f=>normalizeStr(f.n).startsWith(sing))
+      ||matches[0]||null;
+    return{raw:p,qty,term,food:best};
+  });
+  return{items,allMatched:items.every(i=>i.food),hasUnits};
+}
+
+// Compuesto con todos los matches locales → modal de confirmación SIN pasar por IA
+function nlFromLocalParts(){
+  const comp=window._lastCompound;
+  if(!comp)return;
+  _nlItems=comp.items.map(i=>{
+    const f=i.food;
+    let unit,gpU;
+    if(f._gpU){unit=f._gu||"porcion";gpU=f._gpU;}
+    else{const r=getDefaultUnit(f.n);unit=r.unit&&r.unit!=="g"?r.unit:"porcion";gpU=r.gpU||100;}
+    return{nombre:f.n,c:+f.c,p:+f.p,ch:+f.ch,g:+f.g,cat:f.cat||"🍽️",unidad:unit,gpU,cantidad:i.qty,confianza:"alta",local:true};
+  });
+  hideResults();
+  renderNLConfirm();
+  document.getElementById("nl-confirm-modal").classList.add("show");
+}
+
 let searchTimer=null;
 function onSearchInput(){
   clearTimeout(searchTimer);
@@ -1972,9 +2008,32 @@ async function doSearch(q){
   let sharedResults=[];
   if(fbUser && fbDb){ await loadSharedFoods(); sharedResults=searchSharedFoods(q); }
   const allResults=[...localResults,...sharedResults];
+  // Decisión inteligente: ¿es una entrada compuesta ("milanesa con puré", "2 empanadas y una coca")?
+  const comp=parseCompoundLocal(q);
+  let compoundHtml="";
+  if(comp){
+    if(comp.allMatched&&!comp.hasUnits){
+      // Camino rápido sin IA: todas las partes están en la base
+      window._lastCompound=comp;
+      compoundHtml=`<div class="search-no-result" style="border-bottom:1px solid var(--border)">
+        <div style="font-size:12px;color:var(--text2);margin-bottom:8px">Encontré: <b>${comp.items.map(i=>(i.qty!==1?i.qty+"× ":"")+i.food.n).join(" + ")}</b></div>
+        <button class="add-new-btn" onclick="nlFromLocalParts()">➕ Agregar todos (porciones editables)</button>
+      </div>`;
+    }else{
+      // Falta algún match o hay unidades naturales → la IA aporta
+      compoundHtml=`<div class="search-no-result" style="border-bottom:1px solid var(--border)">
+        <button class="add-new-btn" onclick="parseNaturalFood()">🤖 Interpretar con IA</button>
+      </div>`;
+    }
+  }
   if(!allResults.length){
     window._lastSearchQuery=q;
-    el.innerHTML=`<div class="search-no-result">
+    el.innerHTML=comp?compoundHtml+`<div class="search-no-result">
+      <button class="add-new-btn" style="background:none;border-color:var(--border2);color:var(--text2)" onclick="showNewFoodModal(window._lastSearchQuery)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Agregar manualmente
+      </button>
+    </div>`:`<div class="search-no-result">
       <p>No encontramos en la base de datos.</p>
       <button class="add-new-btn" id="gemini-search-btn" onclick="doGeminiSearch(window._lastSearchQuery)">
         🤖 Buscar con IA
@@ -1986,7 +2045,7 @@ async function doSearch(q){
     </div>`;
     el.classList.add("show");return;
   }
-  el.innerHTML=allResults.map(item=>`
+  el.innerHTML=compoundHtml+allResults.map(item=>`
     <div class="sri" onclick='selectFood(${JSON.stringify(item)})'>
       <div style="min-width:0">
         <div class="sri-name">${item.cat} ${item.n}</div>
@@ -2829,7 +2888,118 @@ function aggregateYear(yyyy){ // "YYYY" → 12 agregados mensuales
   return months;
 }
 
+// ─── INSIGHTS SEMANALES (reglas locales, sin IA; IA opcional) ─────
+function prevWeekLabel(){
+  const d=new Date(currentWeekLabel()+"T12:00:00");d.setDate(d.getDate()-7);
+  return d.toISOString().split("T")[0];
+}
+function weekDatesFrom(monday){
+  return Array.from({length:7},(_,i)=>{const d=new Date(monday+"T12:00:00");d.setDate(d.getDate()+i);return d.toISOString().split("T")[0];});
+}
+function aggregateWeekStats(monday){
+  const allDays=getDays();
+  const dates=weekDatesFrom(monday);
+  let regDays=0,protDays=0,trained=0,vol=0,cal=0;
+  for(const ds of dates){
+    const d=allDays[ds];if(!d)continue;
+    const t=getTotals(d.foods||[]);
+    if(t.cal>0){regDays++;cal+=t.cal;}
+    const tgt=getDayTargets(d);
+    if(t.cal>0&&tgt.prot&&t.prot>=tgt.prot)protDays++;
+    if(d.gymOn||d.boxingOn||(d.extraActivities&&d.extraActivities.length))trained++;
+    if(d.gym)for(const gd of Object.values(d.gym))for(const sets of Object.values(gd))for(const s of(sets||[]))if(s.peso&&s.reps)vol+=(+s.peso)*(+s.reps);
+  }
+  const wh=ls("weightHistory",[]).filter(e=>e.date>=dates[0]&&e.date<=dates[6]).sort((a,b)=>a.date.localeCompare(b.date));
+  return{monday,regDays,protDays,trained,vol,avgCal:regDays?Math.round(cal/regDays):0,
+    pesoIni:wh[0]?.peso??null,pesoFin:wh[wh.length-1]?.peso??null};
+}
+function buildWeeklyInsight(monday){
+  const s=aggregateWeekStats(monday);
+  const prevMon=(()=>{const d=new Date(monday+"T12:00:00");d.setDate(d.getDate()-7);return d.toISOString().split("T")[0];})();
+  const prev=aggregateWeekStats(prevMon);
+  const lines=[];
+  const hasAny=s.regDays>0||s.trained>0;
+  if(hasAny){
+    lines.push(`📋 Registraste comidas ${s.regDays} de 7 días`);
+    if(s.regDays>0)lines.push(`🥩 Meta de proteína: ${s.protDays} de ${s.regDays} días registrados`);
+    if(s.trained>0){
+      let gym=`🏋️ Entrenaste ${s.trained} día${s.trained!==1?"s":""}`;
+      if(prev.vol>0&&s.vol>0){
+        const pct=Math.round((s.vol-prev.vol)/prev.vol*100);
+        if(pct!==0)gym+=` · volumen ${pct>0?"+":""}${pct}% vs semana anterior`;
+      }
+      lines.push(gym);
+    }
+    if(s.pesoIni!=null&&s.pesoFin!=null&&s.pesoIni!==s.pesoFin){
+      const diff=+(s.pesoFin-s.pesoIni).toFixed(1);
+      lines.push(diff<0?`⚖️ Bajaste ${Math.abs(diff)}kg esta semana`:`⚖️ Subiste ${diff}kg esta semana`);
+    }
+    const streak=calcStreak();
+    if(streak.current>=3)lines.push(`🔥 Racha actual: ${streak.current} días`);
+  }
+  const good=s.regDays>=5||s.trained>=3;
+  return{week:monday,lines,good,hasAny,
+    stats:{regDays:s.regDays,protDays:s.protDays,trained:s.trained,vol:Math.round(s.vol),avgCal:s.avgCal,pesoIni:s.pesoIni,pesoFin:s.pesoFin},
+    generatedAt:new Date().toISOString(),dismissed:false};
+}
+// Genera una sola vez por semana y lo guarda (histórico consultable a futuro)
+function ensureWeeklyInsight(){
+  const wk=prevWeekLabel();
+  const all=ls("weeklyInsights",{});
+  if(!all[wk]){all[wk]=buildWeeklyInsight(wk);ss("weeklyInsights",all);}
+  return all[wk];
+}
+function renderInsightsCard(){
+  const box=document.getElementById("insights-box");if(!box)return;
+  const ins=ensureWeeklyInsight();
+  if(ins.dismissed||!ins.hasAny){box.innerHTML="";return;}
+  const good=ins.good;
+  box.innerHTML=`<div style="background:${good?"linear-gradient(135deg,rgba(200,245,100,0.08),rgba(77,208,160,0.06))":"var(--surface)"};border:1px solid ${good?"rgba(200,245,100,0.3)":"var(--border2)"};border-radius:var(--r);padding:14px;margin-bottom:16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div style="font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:${good?"var(--accent)":"var(--text2)"}">${good?"✨ ":""}Tu semana pasada</div>
+      <button onclick="dismissWeeklyInsight()" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;line-height:1">×</button>
+    </div>
+    <div style="font-size:13px;line-height:1.9">${ins.lines.join("<br>")}</div>
+    ${!good?`<div style="font-size:12px;color:var(--text3);margin-top:6px">Semana floja de registros — arrancá hoy de nuevo 💪</div>`:""}
+    ${ins.aiText
+      ?`<div style="font-size:12px;color:var(--text2);line-height:1.6;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);white-space:pre-wrap">🤖 ${ins.aiText}</div>`
+      :(getGeminiKey()?`<button class="btn" id="ai-insight-btn" style="margin-top:10px;font-size:12px;padding:6px 12px" onclick="aiWeeklyInsight()">🤖 Análisis con IA</button>`:"")}
+  </div>`;
+}
+function dismissWeeklyInsight(){
+  const wk=prevWeekLabel(),all=ls("weeklyInsights",{});
+  if(all[wk]){all[wk].dismissed=true;ss("weeklyInsights",all);}
+  const box=document.getElementById("insights-box");
+  if(box)box.innerHTML="";
+}
+async function aiWeeklyInsight(){
+  const wk=prevWeekLabel(),all=ls("weeklyInsights",{}),ins=all[wk];
+  if(!ins)return;
+  const btn=document.getElementById("ai-insight-btn");
+  if(btn){btn.disabled=true;btn.textContent="Analizando...";}
+  const st=ins.stats,p=getProfile();
+  const obj=p.obj==="deficit"?"perder grasa":p.obj==="surplus"?"ganar músculo":"recomposición corporal";
+  const prompt=`Sos un coach de nutrición y fitness. Datos de la semana pasada de un usuario argentino (objetivo: ${obj}):
+- Días con comidas registradas: ${st.regDays}/7
+- Días que llegó a su meta de proteína: ${st.protDays}
+- Días entrenados: ${st.trained}
+- Volumen de gym: ${st.vol} kg×reps
+- Calorías promedio: ${st.avgCal} kcal/día
+- Peso corporal: ${st.pesoIni??"sin dato"} → ${st.pesoFin??"sin dato"} kg
+Devolvé 2-3 observaciones breves y UN consejo accionable para la semana que arranca. Tono amable y motivador, nunca culposo. Máximo 60 palabras. Español argentino. Sin markdown.`;
+  try{
+    const res=await geminiPost(getGeminiKey(),{contents:[{parts:[{text:prompt}]}]});
+    if(!res||!res.ok){showToast("Error al consultar Gemini","err");return;}
+    const data=await res.json();
+    const text=(data?.candidates?.[0]?.content?.parts?.[0]?.text||"").trim();
+    if(text){ins.aiText=text;ss("weeklyInsights",all);renderInsightsCard();}
+    else showToast("Gemini no respondió","err");
+  }catch(e){showToast("Error de conexión con Gemini","err");}
+  finally{const b=document.getElementById("ai-insight-btn");if(b){b.disabled=false;b.textContent="🤖 Análisis con IA";}}
+}
+
 function renderSemana(){
+  renderInsightsCard();
   if(semanaRange==="mes"){renderMes();return;}
   if(semanaRange==="anio"){renderAnio();return;}
   document.getElementById("semana-sub").textContent="Balance semanal";
@@ -3126,10 +3296,18 @@ function findLocalFood(nombre){
       || null;
 }
 
+// Enviar desde la caja unificada (Enter o ➤): siempre va al flujo de IA
+function sendUnifiedInput(){
+  const q=(document.getElementById("food-search")?.value||"").trim();
+  if(!q){showToast("Escribí o contá qué comiste","err");return;}
+  parseNaturalFood();
+}
+
 async function parseNaturalFood(){
-  const input=document.getElementById("nl-food-input");
+  const input=document.getElementById("food-search");
   const text=(input?.value||"").trim();
   if(!text){showToast("Contame qué comiste","err");return;}
+  hideResults();
   const key=getGeminiKey();
   if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
   const btn=document.getElementById("nl-send-btn");
@@ -3246,8 +3424,9 @@ function confirmNLItems(){
   saveTodayData(td);
   const msg="Agregado ✓"+(savedNew?` · ${savedNew} nuevo${savedNew>1?"s":""} en Despensa`:"");
   closeNLModal();
-  const input=document.getElementById("nl-food-input");
+  const input=document.getElementById("food-search");
   if(input)input.value="";
+  hideResults();
   renderHoy();
   showToast(msg,"ok");
 }
@@ -3264,8 +3443,11 @@ function nlToggleVoice(){
   _nlRecog.interimResults=false;
   _nlRecog.onresult=e=>{
     const t=e.results[0]?.[0]?.transcript||"";
-    const input=document.getElementById("nl-food-input");
-    if(input)input.value=(input.value?input.value+" ":"")+t;
+    const input=document.getElementById("food-search");
+    if(input){
+      input.value=(input.value?input.value+" ":"")+t;
+      if(input.value.trim().length>=2)doSearch(input.value.trim()); // mismo pipeline de decisión
+    }
   };
   _nlRecog.onend=()=>{_nlListening=false;if(btn){btn.textContent="🎤";btn.style.borderColor="var(--border2)";}};
   _nlRecog.onerror=()=>{_nlListening=false;if(btn){btn.textContent="🎤";btn.style.borderColor="var(--border2)";}};
