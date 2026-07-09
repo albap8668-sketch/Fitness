@@ -238,8 +238,8 @@ input[type=number]::-webkit-inner-spin-button,input[type=number]::-webkit-outer-
 input[type=number]{-moz-appearance:textfield}
 select option{background:#18181c}
 
-.toast{position:fixed;top:calc(env(safe-area-inset-top) + 56px);left:50%;transform:translateX(-50%) translateY(-80px);background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);padding:10px 18px;font-size:13px;font-weight:500;z-index:999;transition:transform 0.3s ease;pointer-events:none;max-width:340px;text-align:center}
-.toast.show{transform:translateX(-50%) translateY(0)}.toast.ok{border-color:rgba(77,208,160,0.3);color:var(--teal)}.toast.err{border-color:rgba(255,94,94,0.3);color:var(--red)}
+.toast{position:fixed;top:calc(env(safe-area-inset-top) + 56px);left:50%;transform:translateX(-50%) translateY(-80px);opacity:0;visibility:hidden;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r);padding:10px 18px;font-size:13px;font-weight:500;z-index:999;transition:transform 0.3s ease,opacity 0.3s ease,visibility 0.3s;pointer-events:none;max-width:340px;text-align:center}
+.toast.show{transform:translateX(-50%) translateY(0);opacity:1;visibility:visible}.toast.ok{border-color:rgba(77,208,160,0.3);color:var(--teal)}.toast.err{border-color:rgba(255,94,94,0.3);color:var(--red)}
 /* EXTRA ACTIVITIES */
 .add-act-btn{width:100%;background:none;border:1px dashed var(--border2);border-radius:var(--r);padding:10px;color:var(--text3);font-family:var(--font);font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:all 0.15s;margin-bottom:0}
 .add-act-btn:hover{border-color:var(--accent);color:var(--accent)}
@@ -353,10 +353,10 @@ select option{background:#18181c}
         <span style="font-size:14px">🗣</span>
         <span style="font-size:12px;color:var(--text2)">Contá qué comiste — la IA lo registra</span>
       </div>
-      <div style="display:flex;gap:6px;align-items:stretch">
-        <textarea id="nl-food-input" rows="1" placeholder="ej: 2 milanesas con puré y una coca chica" autocomplete="off" style="flex:1;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:14px;resize:none;outline:none;line-height:1.4" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();parseNaturalFood();}"></textarea>
-        <button id="nl-mic-btn" onclick="nlToggleVoice()" title="Dictar por voz" style="display:none;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 12px;font-size:16px;cursor:pointer">🎤</button>
-        <button id="nl-send-btn" onclick="parseNaturalFood()" title="Registrar" style="background:var(--accent);border:none;border-radius:var(--r-sm);padding:0 14px;font-size:15px;font-weight:700;color:#0e0e10;cursor:pointer">➤</button>
+      <div style="display:flex;gap:6px;align-items:stretch;min-width:0">
+        <input type="text" id="nl-food-input" placeholder="ej: 2 milanesas con puré..." autocomplete="off" style="flex:1;min-width:0;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:9px 12px;color:var(--text);font-family:var(--font);font-size:14px;outline:none" onkeydown="if(event.key==='Enter'){event.preventDefault();parseNaturalFood();}">
+        <button id="nl-mic-btn" onclick="nlToggleVoice()" title="Dictar por voz" style="display:none;flex-shrink:0;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:0 12px;font-size:16px;cursor:pointer">🎤</button>
+        <button id="nl-send-btn" onclick="parseNaturalFood()" title="Registrar" style="flex-shrink:0;background:var(--accent);border:none;border-radius:var(--r-sm);padding:0 14px;font-size:15px;font-weight:700;color:#0e0e10;cursor:pointer">➤</button>
       </div>
     </div>
   </div>
@@ -420,16 +420,21 @@ select option{background:#18181c}
 
 <!-- SEMANA -->
 <div id="sec-semana" class="section">
-  <div class="page-header"><div><div class="page-title">Semana</div><div class="page-sub">Balance semanal</div></div></div>
+  <div class="page-header"><div><div class="page-title">Progreso</div><div class="page-sub" id="semana-sub">Balance semanal</div></div></div>
+  <div style="display:flex;gap:6px;padding:0 18px;margin-bottom:14px" id="range-selector">
+    <button class="rest-preset active" id="rng-semana" onclick="setSemanaRange('semana')">Semana</button>
+    <button class="rest-preset" id="rng-mes" onclick="setSemanaRange('mes')">Mes</button>
+    <button class="rest-preset" id="rng-anio" onclick="setSemanaRange('anio')">Año</button>
+  </div>
   <div class="wk-grid" id="wk-grid"></div>
   <div id="day-det-box"></div>
   <div class="sec-label">Resumen</div>
   <div class="wk-sum-cards" id="wk-sum-cards"></div>
   <div class="balance-box" id="week-balance"></div>
-  <div class="sec-label" style="margin-top:8px">Gráficos semanales</div>
+  <div class="sec-label" style="margin-top:8px" id="charts-label">Gráficos semanales</div>
   <div class="chart-container">
     <div class="chart-box">
-      <div class="chart-title">
+      <div class="chart-title" id="ct-cal">
         Calorías: ingeridas vs quemadas
         <div class="chart-legend">
           <span><span class="legend-dot" style="background:var(--accent)"></span>Ingeridas</span>
@@ -441,7 +446,7 @@ select option{background:#18181c}
   </div>
   <div class="chart-container">
     <div class="chart-box">
-      <div class="chart-title">
+      <div class="chart-title" id="ct-prot">
         Proteínas: ingeridas vs meta
         <div class="chart-legend">
           <span><span class="legend-dot" style="background:var(--teal)"></span>Ingeridas</span>
@@ -453,7 +458,7 @@ select option{background:#18181c}
   </div>
   <div class="chart-container">
     <div class="chart-box">
-      <div class="chart-title">
+      <div class="chart-title" id="ct-macros">
         Carbos y grasas diarios
         <div class="chart-legend">
           <span><span class="legend-dot" style="background:var(--purple)"></span>Carbos</span>
@@ -461,6 +466,12 @@ select option{background:#18181c}
         </div>
       </div>
       <div class="chart-svg-wrap" id="chart-macros"></div>
+    </div>
+  </div>
+  <div class="chart-container" id="extra-chart-container" style="display:none">
+    <div class="chart-box">
+      <div class="chart-title" id="ct-extra">Peso corporal por mes</div>
+      <div class="chart-svg-wrap" id="chart-extra"></div>
     </div>
   </div>
   <div style="height:8px"></div>
@@ -2745,8 +2756,81 @@ function renderLineChart(data,key,label,color){
   return`<div class="chart-box"><div class="chart-title" style="font-size:12px;margin-bottom:10px">${label} <span style="color:${color};font-family:var(--mono)">${data[data.length-1][key]}kg</span></div><div class="chart-svg-wrap"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${svg}</svg></div></div>`;
 }
 
-// ─── SEMANA ───────────────────────────────────────────────────────
+// ─── SEMANA / MES / AÑO ───────────────────────────────────────────
+let semanaRange="semana";
+function setSemanaRange(r){
+  semanaRange=r;
+  document.querySelectorAll("#range-selector .rest-preset").forEach(b=>b.classList.toggle("active",b.id==="rng-"+r));
+  document.getElementById("day-det-box").innerHTML="";
+  renderSemana();
+}
+
+// Restaura los títulos/leyendas de los gráficos según la vista activa
+function setChartTitles(view){
+  const t={
+    semana:{
+      cal:`Calorías: ingeridas vs quemadas<div class="chart-legend"><span><span class="legend-dot" style="background:var(--accent)"></span>Ingeridas</span><span><span class="legend-dot" style="background:var(--red)"></span>Quemadas</span></div>`,
+      prot:`Proteínas: ingeridas vs meta<div class="chart-legend"><span><span class="legend-dot" style="background:var(--teal)"></span>Ingeridas</span><span><span class="legend-dot" style="background:var(--surface3)"></span>Meta</span></div>`,
+      macros:`Carbos y grasas diarios<div class="chart-legend"><span><span class="legend-dot" style="background:var(--purple)"></span>Carbos</span><span><span class="legend-dot" style="background:var(--amber)"></span>Grasas</span></div>`
+    },
+    mes:{
+      cal:`Calorías diarias del mes<div class="chart-legend"><span><span class="legend-dot" style="background:var(--accent)"></span>Ingeridas</span><span><span class="legend-dot" style="background:var(--red)"></span>Quemadas</span></div>`,
+      prot:`Proteínas diarias del mes<div class="chart-legend"><span><span class="legend-dot" style="background:var(--teal)"></span>Ingeridas</span><span><span class="legend-dot" style="background:var(--surface3)"></span>Meta</span></div>`,
+      macros:`Carbos y grasas diarios<div class="chart-legend"><span><span class="legend-dot" style="background:var(--purple)"></span>Carbos</span><span><span class="legend-dot" style="background:var(--amber)"></span>Grasas</span></div>`
+    },
+    anio:{
+      cal:`Calorías promedio por mes<div class="chart-legend"><span><span class="legend-dot" style="background:var(--accent)"></span>Prom. diario</span></div>`,
+      prot:`Días entrenados por mes<div class="chart-legend"><span><span class="legend-dot" style="background:var(--teal)"></span>Días</span></div>`,
+      macros:`Volumen de gym por mes<div class="chart-legend"><span><span class="legend-dot" style="background:var(--purple)"></span>kg×reps (miles)</span></div>`
+    }
+  }[view];
+  document.getElementById("ct-cal").innerHTML=t.cal;
+  document.getElementById("ct-prot").innerHTML=t.prot;
+  document.getElementById("ct-macros").innerHTML=t.macros;
+}
+
+// ─── AGREGACIONES (independientes de la UI — sobreviven cambios de modelo) ──
+function aggregateMonth(ym){ // "YYYY-MM" → stats + serie diaria
+  const allDays=getDays();
+  const [y,m]=ym.split("-").map(Number);
+  const daysInMonth=new Date(y,m,0).getDate();
+  let cal=0,prot=0,burned=0,regDays=0,trained=0,gymVol=0;
+  const daily=[];
+  for(let dd=1;dd<=daysInMonth;dd++){
+    const ds=ym+"-"+String(dd).padStart(2,"0");
+    const d=allDays[ds];
+    const t=getTotals(d?.foods||[]);
+    const tgt=d?getDayTargets(d):{burned:0,prot:0};
+    if(t.cal>0){regDays++;cal+=t.cal;prot+=t.prot;burned+=tgt.burned;}
+    if(d&&(d.gymOn||d.boxingOn||(d.extraActivities&&d.extraActivities.length)))trained++;
+    if(d?.gym)for(const gd of Object.values(d.gym))for(const sets of Object.values(gd))for(const s of(sets||[]))if(s.peso&&s.reps)gymVol+=(+s.peso)*(+s.reps);
+    daily.push({date:ds,cal:Math.round(t.cal),burned:Math.round(tgt.burned),prot:Math.round(t.prot),protGoal:tgt.prot||0,carb:Math.round(t.carb),fat:Math.round(t.fat),hasData:t.cal>0,isToday:ds===TODAY});
+  }
+  // Peso corporal: primera y última medición del mes
+  const wh=ls("weightHistory",[]).filter(e=>e.date.startsWith(ym)).sort((a,b)=>a.date.localeCompare(b.date));
+  return{ym,daily,regDays,trained,gymVol,
+    avgCal:regDays?Math.round(cal/regDays):0,
+    avgProt:regDays?Math.round(prot/regDays):0,
+    balance:Math.round(cal-burned),
+    pesoIni:wh[0]?.peso??null,pesoFin:wh[wh.length-1]?.peso??null};
+}
+
+function aggregateYear(yyyy){ // "YYYY" → 12 agregados mensuales
+  const months=[];
+  for(let m=1;m<=12;m++){
+    const ym=yyyy+"-"+String(m).padStart(2,"0");
+    months.push(aggregateMonth(ym));
+  }
+  return months;
+}
+
 function renderSemana(){
+  if(semanaRange==="mes"){renderMes();return;}
+  if(semanaRange==="anio"){renderAnio();return;}
+  document.getElementById("semana-sub").textContent="Balance semanal";
+  document.getElementById("charts-label").textContent="Gráficos semanales";
+  document.getElementById("extra-chart-container").style.display="none";
+  setChartTitles("semana");
   const dayNames=["D","L","M","M","J","V","S"],today=new Date(),sow=new Date(today);sow.setDate(today.getDate()-today.getDay());
   const allDays=getDays();const weekDates=[];
   document.getElementById("wk-grid").innerHTML=Array.from({length:7},(_,i)=>{const d=new Date(sow);d.setDate(sow.getDate()+i);const ds=d.toISOString().split("T")[0];weekDates.push(ds);const hasData=allDays[ds]&&(allDays[ds].foods||[]).length>0;return`<div class="wday${hasData?" has-data":""}${ds===TODAY?" today":""}" onclick="showDayDetail('${ds}')"><div class="wday-n">${dayNames[i]}</div><div class="wday-d">${d.getDate()}</div><div class="wdot"></div></div>`;}).join("");
@@ -2759,6 +2843,85 @@ function renderSemana(){
   renderCharts(weekDates, allDays);
   renderRanking();
 }
+
+function renderMes(){
+  const ym=TODAY.slice(0,7);
+  const agg=aggregateMonth(ym);
+  const [y,m]=ym.split("-").map(Number);
+  const monthName=new Date(y,m-1,1).toLocaleDateString("es-AR",{month:"long",year:"numeric"});
+  document.getElementById("semana-sub").textContent=monthName.charAt(0).toUpperCase()+monthName.slice(1);
+  document.getElementById("charts-label").textContent="Gráficos del mes";
+  document.getElementById("extra-chart-container").style.display="none";
+  setChartTitles("mes");
+  // Grid calendario: celdas vacías hasta el día de semana del 1°, luego los días
+  const firstDow=new Date(y,m-1,1).getDay();
+  const blanks=Array.from({length:firstDow},()=>`<div></div>`).join("");
+  document.getElementById("wk-grid").innerHTML=blanks+agg.daily.map(d=>{
+    const dd=+d.date.slice(8);
+    return`<div class="wday${d.hasData?" has-data":""}${d.isToday?" today":""}" onclick="showDayDetail('${d.date}')" style="padding:6px 0"><div class="wday-d">${dd}</div><div class="wdot"></div></div>`;
+  }).join("");
+  // Stats del mes
+  const pesoTxt=(agg.pesoIni!=null&&agg.pesoFin!=null&&agg.pesoIni!==agg.pesoFin)
+    ?agg.pesoIni+"→"+agg.pesoFin:(agg.pesoFin!=null?String(agg.pesoFin):"—");
+  document.getElementById("wk-sum-cards").innerHTML=
+    `<div class="card"><div class="card-label">Kcal prom./día</div><div class="card-val">${agg.avgCal||"—"}</div><div class="card-sub">${agg.regDays} días registrados</div></div>`+
+    `<div class="card"><div class="card-label">Proteína prom.</div><div class="card-val">${agg.avgProt||"—"}${agg.avgProt?'<span style="font-size:13px">g</span>':""}</div></div>`+
+    `<div class="card"><div class="card-label">Días entrenados</div><div class="card-val">${agg.trained}</div><div class="card-sub">gym + boxeo + extra</div></div>`+
+    `<div class="card"><div class="card-label">Peso (kg)</div><div class="card-val" style="font-size:18px">${pesoTxt}</div><div class="card-sub">inicio → fin de mes</div></div>`;
+  // Balance mensual acumulado
+  if(agg.regDays>0){
+    const isD=agg.balance<0;
+    document.getElementById("week-balance").innerHTML=`<div class="balance-title">Balance mensual acumulado</div><div class="brow"><span class="bkey">Días con registro</span><span class="bval">${agg.regDays}</span></div><div class="brow btotal"><span class="bkey" style="font-weight:500">Resultado</span><span class="pill ${isD?"pill-g":Math.abs(agg.balance)<=3000?"pill-a":"pill-r"}">${isD?"Déficit "+Math.abs(agg.balance)+" kcal ✓":"Exceso "+agg.balance+" kcal"}</span></div>`;
+  }else{
+    document.getElementById("week-balance").innerHTML=`<div class="balance-title">Balance mensual</div><div style="padding:16px;font-size:13px;color:var(--text3)">Sin registros este mes.</div>`;
+  }
+  // Gráficos con granularidad diaria (etiqueta cada 5 días para no saturar)
+  const data=agg.daily.map(d=>({...d,label:(+d.date.slice(8))%5===1?String(+d.date.slice(8)):""}));
+  renderBarChart("chart-cal",data,[{key:"cal",color:"var(--accent)"},{key:"burned",color:"var(--red)"}],"kcal");
+  renderBarChart("chart-prot",data,[{key:"prot",color:"var(--teal)"},{key:"protGoal",color:"rgba(77,208,160,0.2)"}],"g");
+  renderBarChart("chart-macros",data,[{key:"carb",color:"var(--purple)"},{key:"fat",color:"var(--amber)"}],"g");
+  renderRanking();
+}
+
+function renderAnio(){
+  const yyyy=TODAY.slice(0,4);
+  const months=aggregateYear(yyyy);
+  document.getElementById("semana-sub").textContent="Año "+yyyy;
+  document.getElementById("charts-label").textContent="Evolución anual";
+  setChartTitles("anio");
+  document.getElementById("wk-grid").innerHTML="";
+  // Stats del año
+  const trained=months.reduce((a,m)=>a+m.trained,0);
+  const withData=months.filter(m=>m.regDays>0);
+  const avgCal=withData.length?Math.round(withData.reduce((a,m)=>a+m.avgCal,0)/withData.length):0;
+  const totVol=months.reduce((a,m)=>a+m.gymVol,0);
+  const wh=ls("weightHistory",[]).filter(e=>e.date.startsWith(yyyy)).sort((a,b)=>a.date.localeCompare(b.date));
+  const pesoTxt=(wh.length>=2)?wh[0].peso+"→"+wh[wh.length-1].peso:(wh.length?String(wh[0].peso):"—");
+  document.getElementById("wk-sum-cards").innerHTML=
+    `<div class="card"><div class="card-label">Días entrenados</div><div class="card-val">${trained}</div><div class="card-sub">en el año</div></div>`+
+    `<div class="card"><div class="card-label">Kcal prom./día</div><div class="card-val">${avgCal||"—"}</div></div>`+
+    `<div class="card"><div class="card-label">Volumen total</div><div class="card-val" style="font-size:18px">${totVol>=1000?(totVol/1000).toFixed(1)+"t":Math.round(totVol)+"kg"}</div><div class="card-sub">kg × reps acumulado</div></div>`+
+    `<div class="card"><div class="card-label">Peso (kg)</div><div class="card-val" style="font-size:18px">${pesoTxt}</div><div class="card-sub">inicio → hoy</div></div>`;
+  document.getElementById("week-balance").innerHTML="";
+  // 12 barras mensuales por gráfico
+  const mLabels=["E","F","M","A","M","J","J","A","S","O","N","D"];
+  const curM=+TODAY.slice(5,7);
+  const data=months.map((mo,i)=>({label:mLabels[i],cal:mo.avgCal,dias:mo.trained,vol:+(mo.gymVol/1000).toFixed(1),hasData:mo.regDays>0||mo.trained>0,isToday:i+1===curM}));
+  renderBarChart("chart-cal",data,[{key:"cal",color:"var(--accent)"}],"kcal");
+  renderBarChart("chart-prot",data,[{key:"dias",color:"var(--teal)"}],"días");
+  renderBarChart("chart-macros",data,[{key:"vol",color:"var(--purple)"}],"k");
+  // Peso corporal: última medición de cada mes → línea con granularidad mensual
+  const pesoData=months.map((mo,i)=>mo.pesoFin!=null?{date:yyyy+"-"+String(i+1).padStart(2,"0"),peso:mo.pesoFin}:null).filter(Boolean);
+  const extra=document.getElementById("extra-chart-container");
+  if(pesoData.length>=2){
+    extra.style.display="block";
+    document.getElementById("chart-extra").innerHTML=renderLineChart(pesoData,"peso","Peso corporal (kg)","var(--blue)");
+  }else{
+    extra.style.display="none";
+  }
+  renderRanking();
+}
+
 function showDayDetail(date){const allDays=getDays(),d=allDays[date]||{foods:[],steps:0,gym:{}},t=getTotals(d.foods||[]),tgt=getDayTargets(d);document.getElementById("day-det-box").innerHTML=`<div class="day-det"><div class="day-det-hdr"><span style="font-size:13px;font-weight:500;font-family:var(--mono)">${date}</span><button style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer" onclick="document.getElementById('day-det-box').innerHTML=''">×</button></div><div class="brow"><span class="bkey">Consumido</span><span class="bval">${Math.round(t.cal)} kcal</span></div><div class="brow"><span class="bkey">Gasto total</span><span class="bval">${tgt.burned} kcal</span></div><div class="brow"><span class="bkey">Proteínas</span><span class="bval">${Math.round(t.prot)}g</span></div><div class="brow"><span class="bkey">Gym 🏋️</span><span class="bval">${d.gymOn?"Sí (+"+tgt.gc+" kcal)":"No"}</span></div><div class="brow"><span class="bkey">Boxeo 🥊</span><span class="bval">${d.boxingOn?"Sí "+( d.boxingDuration||90)+"min (+"+tgt.bc+" kcal)":"No"}</span></div></div>`;}
 
 // ─── PERFIL ───────────────────────────────────────────────────────
@@ -3718,6 +3881,7 @@ function renderCharts(weekDates, allDays){
       fat: Math.round(t.fat),
       fatGoal: tgt.fat,
       hasData: t.cal > 0,
+      isToday: ds === TODAY,
     };
   });
 
@@ -3741,15 +3905,15 @@ function renderBarChart(containerId, data, series, unit){
   const el = document.getElementById(containerId);
   if(!el) return;
   const hasAny = data.some(d=>d.hasData);
-  if(!hasAny){ el.innerHTML=`<div class="chart-no-data">Sin datos esta semana</div>`; return; }
+  if(!hasAny){ el.innerHTML=`<div class="chart-no-data">Sin datos en este período</div>`; return; }
 
   const W = Math.min(360, window.innerWidth - 72);
   const H = 140;
   const padL = 36, padB = 22, padT = 8, padR = 8;
   const chartW = W - padL - padR;
   const chartH = H - padB - padT;
-  const groupW = chartW / 7;
-  const barW = Math.max(4, Math.floor(groupW / (series.length + 1)));
+  const groupW = chartW / data.length; // 7 días, 28-31 días o 12 meses
+  const barW = Math.max(2, Math.floor(groupW / (series.length + 1)));
 
   // max value
   let maxVal = 0;
@@ -3779,14 +3943,15 @@ function renderBarChart(containerId, data, series, unit){
       const barH = Math.max(1, (val/maxVal)*chartH);
       const x = cx - (series.length*barW)/2 + si*barW + si*1;
       const y = yScale(val);
-      svgContent += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="2" fill="${s.color}" opacity="${d.hasData?1:0.25}"/>`;
-      if(val>0 && barH>14){
+      svgContent += `<rect x="${x}" y="${y}" width="${barW}" height="${barH}" rx="${Math.min(2,barW/2)}" fill="${s.color}" opacity="${d.hasData?1:0.25}"/>`;
+      if(val>0 && barH>14 && barW>=9){
         svgContent += `<text x="${x+barW/2}" y="${y+10}" text-anchor="middle" font-size="8" fill="rgba(255,255,255,0.7)">${val>=1000?Math.round(val/100)/10+"k":val}</text>`;
       }
     });
-    // x label
-    const isToday = data[i]&&weekDates&&weekDates[i]===TODAY;
-    svgContent += `<text x="${cx}" y="${H-4}" text-anchor="middle" font-size="10" fill="${isToday?"var(--accent)":"rgba(255,255,255,0.4)"}" font-weight="${isToday?"600":"400"}">${d.label}</text>`;
+    // x label (vacío = se omite, para no saturar en vista mensual)
+    if(d.label!==""&&d.label!=null){
+      svgContent += `<text x="${cx}" y="${H-4}" text-anchor="middle" font-size="10" fill="${d.isToday?"var(--accent)":"rgba(255,255,255,0.4)"}" font-weight="${d.isToday?"600":"400"}">${d.label}</text>`;
+    }
   });
 
   el.innerHTML = `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">${svgContent}</svg>`;
