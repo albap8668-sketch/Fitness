@@ -47,7 +47,7 @@ El historial diario **ya no vive en una clave única `days`**. Desde julio 2026:
 - `getAllFoods()` / `searchFoods(q)` — incluye tags de sinónimos y porciones aprendidas (`_gu/_gpU/_allowed`)
 - `loadSharedFoods()` (cache 5 min) / `addToSharedFoods(food,source)` / `shareCustomFood(id)`
 - `parseNaturalFood()` / `confirmNLItems()` — registro conversacional
-- `geminiPost(key,body)` — intenta `gemini-2.5-flash` → `gemini-2.0-flash` en 503/429
+- `geminiPost(key,body)` — recorre `GEMINI_MODELS` (serie 3.x) con fallback en 404/503/429; si TODOS dan 404 se **auto-repara** vía ListModels y guarda el mejor flash en `localStorage.geminiModelOverride` (los 2.x murieron jun 2026 — no reintroducirlos). Errores al usuario via `geminiErrorMsg(res)`. Diagnóstico: botón "Probar conexión IA" en Perfil (`testGeminiConnection`)
 - `renderBarChart(id,data,series,unit)` — generalizado a N grupos (7/31/12), flag `isToday` por dato
 - `showToast(msg,type)` — auto-oculta 2,5s (oculta con opacity+visibility, no solo transform: en iPhone con notch el translateY no alcanzaba)
 
