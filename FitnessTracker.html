@@ -346,6 +346,7 @@ select option{background:#18181c}
   </div>
   <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
   <input type="file" id="label-input" accept="image/*" capture="environment" style="display:none" onchange="onNutritionLabelSelected(this)">
+  <div id="nudge-box" style="padding:0 18px"></div>
   <!-- ENTRADA UNIFICADA: buscador + registro conversacional -->
   <div class="food-search-wrap" id="food-search-wrap">
     <div class="search-box">
@@ -468,7 +469,13 @@ select option{background:#18181c}
   <div style="height:8px"></div>
   <!-- Ranking semanal del grupo -->
   <div id="ranking-section" style="display:none;padding:0 18px;margin-bottom:16px">
-    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Ranking del grupo — días de gym esta semana</div>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:10px">Ranking del grupo</div>
+    <div id="ranking-metric-sel" style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
+      <button class="rest-preset active" data-m="dias" onclick="setRankingMetric('dias')">Entrenos</button>
+      <button class="rest-preset" data-m="racha" onclick="setRankingMetric('racha')">Racha</button>
+      <button class="rest-preset" data-m="volumen" onclick="setRankingMetric('volumen')">Volumen</button>
+      <button class="rest-preset" data-m="comidas" onclick="setRankingMetric('comidas')">Comidas</button>
+    </div>
     <div id="ranking-list"></div>
     <div id="ranking-msg" style="font-size:12px;color:var(--text3);text-align:center;padding:12px 0;display:none">Iniciá sesión con Google para ver el ranking del grupo.</div>
   </div>
@@ -513,6 +520,11 @@ select option{background:#18181c}
       </div>
       <button class="btn" onclick="fbSignOut()" style="font-size:12px;padding:5px 10px;flex-shrink:0">Salir</button>
     </div>
+    <label style="display:flex;align-items:center;gap:10px;margin-top:12px;font-size:13px;cursor:pointer">
+      <input type="checkbox" id="ranking-optin-chk" checked onchange="toggleRankingOptIn(this)" style="width:16px;height:16px;accent-color:var(--accent)">
+      <span>Participar en el ranking del grupo</span>
+    </label>
+    <div style="font-size:11px;color:var(--text3);margin-top:4px;line-height:1.4">Solo se comparten números agregados (días entrenados, racha, volumen) — nunca el detalle de tus comidas o ejercicios.</div>
   </div>
   <div class="divider"></div>
 
@@ -981,7 +993,7 @@ const firebaseConfig = {
   appId: "1:143264606965:web:7cf0032b6a521f8cd473bc"
 };
 // "days" ya no se sincroniza como campo único: vive en la subcolección months/{YYYY-MM}
-const SYNC_KEYS = ["profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines"];
+const SYNC_KEYS = ["profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines","rankingOptIn"];
 let fbAuth = null, fbDb = null, fbUser = null;
 const ADMIN_UID = "27kSUTAXhpg7NPO342S7XXPjwHn1"; // ← ver tu UID en Perfil después de loguearte
 let _sfCache = null, _sfCacheTime = 0;
@@ -1029,26 +1041,102 @@ function currentWeekLabel(){
   return mon.toISOString().split("T")[0]; // "YYYY-MM-DD" del lunes
 }
 
+function rankingOptIn(){return ls("rankingOptIn",true);}
+
+function toggleRankingOptIn(el){
+  const on=!!el.checked;
+  ss("rankingOptIn",on);
+  syncToCloud("rankingOptIn",on);
+  if(on){
+    updateLeaderboard();
+    showToast("Participás del ranking ✓","ok");
+  }else{
+    if(fbUser&&fbDb)fbDb.collection("leaderboard").doc(fbUser.uid).delete().catch(()=>{});
+    showToast("Saliste del ranking del grupo","ok");
+  }
+}
+
+// Publica SOLO agregados al doc público leaderboard/{uid} (nunca el detalle de
+// comidas/ejercicios — eso queda en users/{uid}, privado por reglas de Firestore)
 async function updateLeaderboard(){
   if(!fbUser||!fbDb) return;
-  // Contar días con gym en la semana actual (lun-dom)
-  const weekStart=currentWeekLabel();
-  const weekEnd=new Date(weekStart+"T00:00:00");weekEnd.setDate(weekEnd.getDate()+6);
-  const weekEndStr=weekEnd.toISOString().split("T")[0];
-  const allDays=getDays();
-  let gymDays=0;
-  for(const [date,d] of Object.entries(allDays)){
-    if(date>=weekStart&&date<=weekEndStr&&d.gymOn) gymDays++;
+  if(!rankingOptIn()){
+    try{await fbDb.collection("leaderboard").doc(fbUser.uid).delete();}catch(e){}
+    return;
   }
+  const weekStart=currentWeekLabel();
+  const s=aggregateWeekStats(weekStart);
+  const prevMon=(()=>{const d=new Date(weekStart+"T12:00:00");d.setDate(d.getDate()-7);return d.toISOString().split("T")[0];})();
+  const prev=aggregateWeekStats(prevMon);
   try{
     await fbDb.collection("leaderboard").doc(fbUser.uid).set({
       displayName:fbUser.displayName||"Usuario",
       photoURL:fbUser.photoURL||"",
-      weeklyGymDays:gymDays,
       weekLabel:weekStart,
+      weeklyGymDays:s.trained,
+      weeklyVolume:Math.round(s.vol),
+      weeklyFoodDays:s.regDays,
+      prevWeekVolume:Math.round(prev.vol),
+      streak:calcStreak().current,
+      lastPRAt:localStorage.getItem("lastPRDate")||null,
       updatedAt:firebase.firestore.FieldValue.serverTimestamp()
     },{merge:false});
   }catch(e){console.warn("updateLeaderboard error:",e);}
+  maybeShowNudge();
+}
+
+let rankingMetric="dias";
+let _lbEntries=null; // cache del snapshot para cambiar de métrica sin re-consultar
+
+function setRankingMetric(m){
+  rankingMetric=m;
+  document.querySelectorAll("#ranking-metric-sel .rest-preset").forEach(b=>b.classList.toggle("active",b.dataset.m===m));
+  renderRankingList();
+}
+
+// Insignias calculadas al vuelo desde los agregados — sin infraestructura persistente
+function computeRankingBadges(entries){
+  const badges={};
+  const add=(uid,e)=>{(badges[uid]=badges[uid]||[]).push(e);};
+  // 🔥 racha más larga del grupo
+  const maxStreak=Math.max(0,...entries.map(e=>e.racha));
+  if(maxStreak>0)entries.filter(e=>e.racha===maxStreak).forEach(e=>add(e.uid,"🔥"));
+  // 🏆 PR más reciente del mes
+  const mesActual=TODAY.slice(0,7);
+  const conPR=entries.filter(e=>typeof e.lastPRAt==="string"&&e.lastPRAt.slice(0,7)===mesActual);
+  if(conPR.length)add(conPR.reduce((a,e)=>e.lastPRAt>a.lastPRAt?e:a).uid,"🏆");
+  // 📈 mayor mejora de volumen vs semana anterior (%)
+  const mejoras=entries.filter(e=>e.prevVol>0&&e.volumen>0).map(e=>({uid:e.uid,pct:(e.volumen-e.prevVol)/e.prevVol}));
+  if(mejoras.length){const best=mejoras.reduce((a,x)=>x.pct>a.pct?x:a);if(best.pct>0)add(best.uid,"📈");}
+  // 🥗 adherencia perfecta: comidas los 7 días
+  entries.filter(e=>e.comidas===7).forEach(e=>add(e.uid,"🥗"));
+  return badges;
+}
+
+const RANKING_METRICS={
+  dias:   {label:"días",  fmt:v=>v},
+  racha:  {label:"días",  fmt:v=>v},
+  volumen:{label:"kg×r",  fmt:v=>v>=1000?(v/1000).toFixed(1)+"k":v},
+  comidas:{label:"/7",    fmt:v=>v},
+};
+
+function renderRankingList(){
+  const listEl=document.getElementById("ranking-list");
+  if(!listEl||!_lbEntries)return;
+  const entries=[..._lbEntries].sort((a,b)=>b[rankingMetric]-a[rankingMetric]);
+  const badges=computeRankingBadges(entries);
+  const M=RANKING_METRICS[rankingMetric];
+  const medals=["🥇","🥈","🥉"];
+  listEl.innerHTML=entries.map((e,i)=>{
+    const v=e[rankingMetric];
+    return`<div style="display:flex;align-items:center;gap:10px;background:var(--surface${e.isMe?"":2});border:1px solid ${e.isMe?"rgba(200,245,100,0.25)":"var(--border)"};border-radius:var(--r);padding:10px 12px;margin-bottom:6px">
+      <div style="font-size:18px;width:24px;text-align:center">${medals[i]||""}</div>
+      ${e.photo?`<img src="${e.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`:""}
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:${e.isMe?600:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.name}${e.isMe?" (vos)":""} <span style="font-size:12px">${(badges[e.uid]||[]).join("")}</span></div></div>
+      <div style="font-family:var(--mono);font-size:15px;font-weight:500;color:${v>0?"var(--accent)":"var(--text3)"}">${M.fmt(v)}<span style="font-size:11px;color:var(--text3);margin-left:2px">${M.label}</span></div>
+    </div>`;
+  }).join("")+
+  `<div style="font-size:10px;color:var(--text3);margin-top:4px">🔥 mejor racha · 🏆 PR del mes · 📈 mayor mejora de volumen · 🥗 comidas los 7 días</div>`;
 }
 
 async function renderRanking(){
@@ -1057,36 +1145,67 @@ async function renderRanking(){
   const msgEl=document.getElementById("ranking-msg");
   if(!section) return;
   section.style.display="block";
+  const sel=document.getElementById("ranking-metric-sel");
   if(!fbUser||!fbDb){
-    listEl.innerHTML="";
+    listEl.innerHTML="";if(sel)sel.style.display="none";
     if(msgEl){msgEl.style.display="block";msgEl.textContent="Iniciá sesión con Google para ver el ranking del grupo.";}
     return;
   }
+  if(!rankingOptIn()){
+    listEl.innerHTML="";if(sel)sel.style.display="none";
+    if(msgEl){msgEl.style.display="block";msgEl.textContent="Activá tu participación en Perfil para ver el ranking.";}
+    return;
+  }
   if(msgEl) msgEl.style.display="none";
+  if(sel)sel.style.display="flex";
   try{
     const snap=await fbDb.collection("leaderboard").get();
     if(snap.empty){listEl.innerHTML=`<div style="font-size:12px;color:var(--text3);text-align:center;padding:12px 0">Sin datos de grupo todavía.</div>`;return;}
     const curWeek=currentWeekLabel();
-    const entries=[];
+    _lbEntries=[];
     snap.forEach(doc=>{
       const d=doc.data();
-      // Solo mostrar si el dato es de esta semana
-      const days=(d.weekLabel===curWeek)?+(d.weeklyGymDays||0):0;
-      entries.push({uid:doc.id,name:d.displayName||"Usuario",photo:d.photoURL||"",days,isMe:doc.id===fbUser.uid});
+      const fresh=d.weekLabel===curWeek; // métricas semanales en 0 si el dato es viejo
+      _lbEntries.push({
+        uid:doc.id,name:d.displayName||"Usuario",photo:d.photoURL||"",isMe:doc.id===fbUser.uid,
+        dias:fresh?+(d.weeklyGymDays||0):0,
+        racha:+(d.streak||0),
+        volumen:fresh?+(d.weeklyVolume||0):0,
+        comidas:fresh?+(d.weeklyFoodDays||0):0,
+        prevVol:fresh?+(d.prevWeekVolume||0):0,
+        lastPRAt:d.lastPRAt||null,
+      });
     });
-    entries.sort((a,b)=>b.days-a.days);
-    const medals=["🥇","🥈","🥉"];
-    listEl.innerHTML=entries.map((e,i)=>`
-      <div style="display:flex;align-items:center;gap:10px;background:var(--surface${e.isMe?"":2});border:1px solid ${e.isMe?"rgba(200,245,100,0.25)":"var(--border)"};border-radius:var(--r);padding:10px 12px;margin-bottom:6px">
-        <div style="font-size:18px;width:24px;text-align:center">${medals[i]||""}</div>
-        ${e.photo?`<img src="${e.photo}" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" onerror="this.style.display='none'">`:""}
-        <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:${e.isMe?600:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${e.name}${e.isMe?" (vos)":""}</div></div>
-        <div style="font-family:var(--mono);font-size:15px;font-weight:500;color:${e.days>0?"var(--accent)":"var(--text3)"}">${e.days}<span style="font-size:11px;color:var(--text3);margin-left:2px">día${e.days!==1?"s":""}</span></div>
-      </div>`).join("");
+    renderRankingList();
   }catch(e){
     console.warn("renderRanking error:",e);
     listEl.innerHTML=`<div style="font-size:12px;color:var(--text3);padding:12px 0">No se pudo cargar el ranking. Verificá las reglas de Firestore.</div>`;
   }
+}
+
+// Detalle motivacional en HOY: a 1 día de la racha del líder — máx. 1 por día
+async function maybeShowNudge(){
+  try{
+    if(!fbUser||!fbDb||!rankingOptIn())return;
+    if(localStorage.getItem("nudgeShownDate")===TODAY)return;
+    const snap=await fbDb.collection("leaderboard").get();
+    let leader=null;
+    snap.forEach(doc=>{
+      const d=doc.data();
+      if(doc.id!==fbUser.uid&&(d.streak||0)>0&&(!leader||(d.streak||0)>leader.streak))
+        leader={name:(d.displayName||"alguien").split(" ")[0],streak:+(d.streak||0)};
+    });
+    if(!leader)return;
+    const diff=leader.streak-calcStreak().current;
+    if(diff!==1)return;
+    const box=document.getElementById("nudge-box");
+    if(!box)return;
+    box.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:10px 14px;margin-bottom:12px;font-size:12px;color:var(--text2);display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span>👀 Estás a 1 día de la racha de ${leader.name}</span>
+      <button onclick="document.getElementById('nudge-box').innerHTML=''" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:14px;line-height:1;padding:0 4px">×</button>
+    </div>`;
+    localStorage.setItem("nudgeShownDate",TODAY);
+  }catch(e){}
 }
 
 async function syncFromCloud(){
@@ -3101,7 +3220,7 @@ function renderAnio(){
 function showDayDetail(date){const allDays=getDays(),d=allDays[date]||{foods:[],steps:0,gym:{}},t=getTotals(d.foods||[]),tgt=getDayTargets(d);document.getElementById("day-det-box").innerHTML=`<div class="day-det"><div class="day-det-hdr"><span style="font-size:13px;font-weight:500;font-family:var(--mono)">${date}</span><button style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer" onclick="document.getElementById('day-det-box').innerHTML=''">×</button></div><div class="brow"><span class="bkey">Consumido</span><span class="bval">${Math.round(t.cal)} kcal</span></div><div class="brow"><span class="bkey">Gasto total</span><span class="bval">${tgt.burned} kcal</span></div><div class="brow"><span class="bkey">Proteínas</span><span class="bval">${Math.round(t.prot)}g</span></div><div class="brow"><span class="bkey">Gym 🏋️</span><span class="bval">${d.gymOn?"Sí (+"+tgt.gc+" kcal)":"No"}</span></div><div class="brow"><span class="bkey">Boxeo 🥊</span><span class="bval">${d.boxingOn?"Sí "+( d.boxingDuration||90)+"min (+"+tgt.bc+" kcal)":"No"}</span></div></div>`;}
 
 // ─── PERFIL ───────────────────────────────────────────────────────
-function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();const k=document.getElementById("p-gemini-key");if(k)k.value=getGeminiKey();renderWeightChart();}
+function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();const k=document.getElementById("p-gemini-key");if(k)k.value=getGeminiKey();const rc=document.getElementById("ranking-optin-chk");if(rc)rc.checked=rankingOptIn();renderWeightChart();}
 
 function renderWeightChart(){
   const wh = ls("weightHistory",[]);
@@ -4743,7 +4862,10 @@ function checkForPR(ei,sets,dayN,date){
   const prev=getPrevBestData(dayN,ei,date);
   if(!prev)return; // primer registro de este ejercicio
   const newMaxVol=Math.max(0,...sets.filter(s=>s.peso&&s.reps).map(s=>+s.peso*+s.reps));
-  if(newMaxVol>prev.vol)showPRCelebration(ei);
+  if(newMaxVol>prev.vol){
+    localStorage.setItem("lastPRDate",date); // alimenta la insignia 🏆 del ranking
+    showPRCelebration(ei);
+  }
 }
 function showPRCelebration(ei){
   const block=document.getElementById("exblock-"+ei);if(!block)return;
