@@ -347,6 +347,7 @@ select option{background:#18181c}
   <input type="file" id="foto-input" accept="image/*" capture="environment" style="display:none" onchange="onPhotoSelected(this)">
   <input type="file" id="label-input" accept="image/*" capture="environment" style="display:none" onchange="onNutritionLabelSelected(this)">
   <div id="nudge-box" style="padding:0 18px"></div>
+  <div id="plan-box" style="padding:0 18px"></div>
   <!-- ENTRADA UNIFICADA: buscador + registro conversacional -->
   <div class="food-search-wrap" id="food-search-wrap">
     <div class="search-box">
@@ -375,6 +376,9 @@ select option{background:#18181c}
   <div class="food-list" id="food-list"></div>
   <div class="sec-label">Balance</div>
   <div class="balance-box" id="balance-box"></div>
+  <div style="padding:0 18px;margin-bottom:8px">
+    <button class="btn wide" onclick="openPlanTomorrow()">🗓 Planificar mañana con IA</button>
+  </div>
   <div style="height:8px"></div>
 </div>
 
@@ -1038,7 +1042,7 @@ async function syncToCloud(key, value){
 function currentWeekLabel(){
   const today=new Date(),dow=today.getDay()||7; // 1=lun…7=dom
   const mon=new Date(today);mon.setDate(today.getDate()-dow+1);
-  return mon.toISOString().split("T")[0]; // "YYYY-MM-DD" del lunes
+  return todayKey(mon); // "YYYY-MM-DD" del lunes (hora local)
 }
 
 function rankingOptIn(){return ls("rankingOptIn",true);}
@@ -1066,7 +1070,7 @@ async function updateLeaderboard(){
   }
   const weekStart=currentWeekLabel();
   const s=aggregateWeekStats(weekStart);
-  const prevMon=(()=>{const d=new Date(weekStart+"T12:00:00");d.setDate(d.getDate()-7);return d.toISOString().split("T")[0];})();
+  const prevMon=(()=>{const d=new Date(weekStart+"T12:00:00");d.setDate(d.getDate()-7);return todayKey(d);})();
   const prev=aggregateWeekStats(prevMon);
   try{
     await fbDb.collection("leaderboard").doc(fbUser.uid).set({
@@ -1273,10 +1277,33 @@ function updateAuthUI(){
   }
 }
 
-// ─── CONSTANTS ────────────────────────────────────────────────────
-const TODAY = new Date().toISOString().split("T")[0];
+// ─── FECHA LOCAL ──────────────────────────────────────────────────
+// ÚNICA fuente de la clave YYYY-MM-DD. SIEMPRE hora local del dispositivo:
+// toISOString() usa UTC y en Argentina (UTC-3) el día "cambiaba" a las 21:00.
+function todayKey(d){
+  d=d||new Date();
+  return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+}
+let TODAY = todayKey();
 let selectedHoyDate = TODAY;
 let currentGymDay = 1, currentFoodItem = null, editingFoodId = null;
+
+// Si la app queda abierta cruzando la medianoche, pasar al día nuevo
+function checkDayRollover(){
+  const now=todayKey();
+  if(now===TODAY)return;
+  const prev=TODAY;
+  TODAY=now;
+  if(selectedHoyDate===prev){
+    selectedHoyDate=TODAY;
+    const el=document.getElementById("hoy-date");
+    if(el)el.value=TODAY;
+  }
+  const activeSec=document.querySelector(".section.active")?.id;
+  if(activeSec==="sec-hoy")renderHoy();
+  else if(activeSec==="sec-semana")renderSemana();
+}
+setInterval(checkDayRollover,60000);
 
 function onHoyDateChange(){
   const el=document.getElementById("hoy-date");
@@ -1287,7 +1314,7 @@ function onHoyDateChange(){
 function changeDay(delta){
   const d=new Date(selectedHoyDate+"T12:00:00");
   d.setDate(d.getDate()+delta);
-  const newDate=d.toISOString().split("T")[0];
+  const newDate=todayKey(d);
   if(newDate>TODAY) return;
   selectedHoyDate=newDate;
   const el=document.getElementById("hoy-date");
@@ -2598,7 +2625,7 @@ function dayHasActivity(d){
 function calcStreak(){
   const allDays=getDays();
   // Desplazar una fecha N días hacia atrás
-  const offsetDate=(base,n)=>{const d=new Date(base+"T12:00:00");d.setDate(d.getDate()-n);return d.toISOString().split("T")[0];};
+  const offsetDate=(base,n)=>{const d=new Date(base+"T12:00:00");d.setDate(d.getDate()-n);return todayKey(d);};
   // Racha actual: arranca desde ayer hacia atrás (hoy puede estar incompleto)
   // Si hoy ya tiene actividad, lo incluimos
   let current=0;
@@ -2640,6 +2667,7 @@ function renderHoy(){
   const p=getProfile(),td=getTodayData(),totals=getTotals(td.foods),tgt=getDayTargets(td);
   const hdEl=document.getElementById("hoy-date");
   if(hdEl) hdEl.value=selectedHoyDate;
+  renderPlanBox();
   const isToday=selectedHoyDate===TODAY;
   // Update title
   const titleEl=document.getElementById("hoy-title");
@@ -3008,13 +3036,193 @@ function aggregateYear(yyyy){ // "YYYY" → 12 agregados mensuales
   return months;
 }
 
+// ─── MEAL PLAN CON IA ("Armame el plan de mañana") ────────────────
+let _mealPlanDraft=null,_planBoxOpen=false;
+function tomorrowKey(){const d=new Date();d.setDate(d.getDate()+1);return todayKey(d);}
+function getMealPlans(){return ls("mealPlans",{});}
+
+// Heurística: ¿mañana entrena? Mismo día de semana en las últimas 3 semanas
+function tomorrowIsTrainingDay(){
+  const allDays=getDays();
+  const t=new Date();t.setDate(t.getDate()+1);
+  let hits=0;
+  for(let w=1;w<=3;w++){
+    const d=new Date(t);d.setDate(t.getDate()-7*w);
+    const day=allDays[todayKey(d)];
+    if(day&&(day.gymOn||day.boxingOn))hits++;
+  }
+  return hits>=2;
+}
+
+// Alimentos más frecuentes: últimos 14 días de historial + despensa
+function frequentFoods(){
+  const allDays=getDays();
+  const count={};
+  for(let i=0;i<14;i++){
+    const d=new Date();d.setDate(d.getDate()-i);
+    const day=allDays[todayKey(d)];
+    if(!day)continue;
+    for(const f of(day.foods||[])){
+      const clean=(f.name||"").replace(/^[^A-Za-zÁÉÍÓÚÑáéíóúñ]+/,"").replace(/\s*\([^)]*\)\s*$/,"").trim();
+      if(clean.length>=3)count[clean]=(count[clean]||0)+1;
+    }
+  }
+  const top=Object.entries(count).sort((a,b)=>b[1]-a[1]).slice(0,15).map(e=>e[0]);
+  const desp=getCustomFoods().slice(0,10).map(f=>f.name);
+  return[...new Set([...top,...desp])].slice(0,20);
+}
+
+// Objetivo de macros para planificar (TDEE por factor de actividad + ajuste entreno)
+function planTargets(train){
+  const p=getProfile();
+  const tdee=Math.round(calcBMR(p)*p.act+(train?250:0));
+  const eat=Math.round(p.obj==="deficit"?tdee-400:p.obj==="surplus"?tdee+200:tdee);
+  const prot=Math.round(p.peso*(train?2.3:2.0));
+  const fat=Math.round(eat*0.25/9);
+  const carb=Math.max(0,Math.round((eat-prot*4-fat*9)/4));
+  return{eat,prot,carb,fat};
+}
+
+function openPlanTomorrow(){
+  const existing=getMealPlans()[tomorrowKey()];
+  if(existing){
+    _mealPlanDraft=existing;
+    renderPlanModal();
+    document.getElementById("plan-modal").classList.add("show");
+    return;
+  }
+  generateMealPlan(false);
+}
+
+async function generateMealPlan(force){
+  const key=getGeminiKey();
+  if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  const btn=document.getElementById("plan-regen-btn");
+  if(btn){btn.disabled=true;btn.textContent="...";}
+  if(!force)showToast("Armando el plan de mañana...","ok");
+  const train=tomorrowIsTrainingDay();
+  const tgt=planTargets(train);
+  const freq=frequentFoods();
+  const prompt=`Sos un nutricionista argentino. Armá el plan de comidas de MAÑANA para esta persona.
+Objetivo del día: ${tgt.eat} kcal, ${tgt.prot}g proteína, ${tgt.carb}g carbohidratos, ${tgt.fat}g grasas.
+${train?"Mañana ENTRENA: priorizá carbohidratos y proteína alrededor del entrenamiento.":"Mañana es día de DESCANSO: carbohidratos moderados, proteína alta."}
+Alimentos que esta persona ya come habitualmente — armá el plan MAYORMENTE con estos, nada de recetas exóticas:
+${freq.length?freq.join(", "):"sin historial — usá comidas argentinas simples y comunes"}
+Contexto argentino: mate o café con leche en desayuno/merienda, comidas caseras típicas.
+Respondé SOLO este JSON:
+{"comidas":[{"nombre":"Desayuno","items":[{"alimento":"...","cantidad":"ej: 2 huevos / 150g","gramos":N,"cal":N,"prot":N,"carb":N,"grasa":N}]}]}
+Reglas: exactamente 4 comidas (Desayuno, Almuerzo, Merienda, Cena). "gramos" = peso total del ítem. Los macros de cada ítem corresponden a SUS gramos totales (NO por 100g). La suma del día debe quedar dentro de ±5% del objetivo. Todos números, sin texto extra.`;
+  try{
+    const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
+    if(!res||!res.ok){showToast(geminiErrorMsg(res),"err");return;}
+    const data=await res.json();
+    const raw=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!raw){showToast("Gemini no respondió","err");return;}
+    const parsed=JSON.parse(raw);
+    const comidas=(parsed.comidas||[]).filter(c=>c.nombre&&Array.isArray(c.items)&&c.items.length);
+    if(!comidas.length){showToast("Plan inválido — probá de nuevo","err");return;}
+    // Totales por comida recalculados en el cliente (no confiar en sumas del modelo)
+    for(const c of comidas){
+      c.cal=Math.round(c.items.reduce((a,i)=>a+(+i.cal||0),0));
+      c.prot=Math.round(c.items.reduce((a,i)=>a+(+i.prot||0),0));
+      c.carb=Math.round(c.items.reduce((a,i)=>a+(+i.carb||0),0));
+      c.fat=Math.round(c.items.reduce((a,i)=>a+(+i.grasa||0),0));
+    }
+    _mealPlanDraft={date:tomorrowKey(),train,tgt,comidas,generatedAt:new Date().toISOString(),registered:{}};
+    renderPlanModal();
+    document.getElementById("plan-modal").classList.add("show");
+  }catch(e){showToast("Error al interpretar el plan","err");console.error(e);}
+  finally{if(btn){btn.disabled=false;btn.textContent="🔄 Otro";}}
+}
+
+function renderPlanModal(){
+  const p=_mealPlanDraft;
+  const el=document.getElementById("plan-modal-body");
+  if(!p||!el)return;
+  const tot=p.comidas.reduce((a,c)=>({cal:a.cal+c.cal,prot:a.prot+c.prot,carb:a.carb+c.carb,fat:a.fat+c.fat}),{cal:0,prot:0,carb:0,fat:0});
+  el.innerHTML=
+    `<div style="font-size:12px;color:var(--text3);margin-bottom:10px">${p.train?"🏋️ Mañana entrenás — carbos y proteína arriba":"😴 Mañana descansás — carbos moderados"}</div>`+
+    p.comidas.map(c=>`<div style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);padding:10px 12px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px">${c.nombre} <span style="font-family:var(--mono);font-size:11px;color:var(--accent);font-weight:400">${c.cal} kcal · P${c.prot} C${c.carb} G${c.fat}</span></div>
+      ${c.items.map(it=>`<div style="font-size:12px;color:var(--text2);line-height:1.7">• ${it.alimento} — ${it.cantidad||Math.round(+it.gramos||0)+"g"}</div>`).join("")}
+    </div>`).join("")+
+    `<div style="display:flex;justify-content:space-between;font-size:12px;font-family:var(--mono);background:var(--surface2);border-radius:var(--r-sm);padding:10px 12px">
+      <span><b style="color:var(--accent)">${Math.round(tot.cal)}</b>/${p.tgt.eat} kcal</span>
+      <span>P ${Math.round(tot.prot)}/${p.tgt.prot}</span>
+      <span>C ${Math.round(tot.carb)}/${p.tgt.carb}</span>
+      <span>G ${Math.round(tot.fat)}/${p.tgt.fat}</span>
+    </div>`;
+}
+
+function saveMealPlan(){
+  if(!_mealPlanDraft)return;
+  const plans=getMealPlans();
+  plans[_mealPlanDraft.date]=_mealPlanDraft;
+  // Podar planes de más de 7 días
+  const cutoff=todayKey(new Date(Date.now()-7*864e5));
+  for(const k of Object.keys(plans))if(k<cutoff)delete plans[k];
+  ss("mealPlans",plans);
+  closePlanModal();
+  showToast("Plan guardado para mañana ✓","ok");
+}
+function closePlanModal(){document.getElementById("plan-modal").classList.remove("show");}
+
+// Sugerencia visible al abrir el día planificado (referencia, nunca obligación)
+function renderPlanBox(){
+  const box=document.getElementById("plan-box");
+  if(!box)return;
+  const plan=getMealPlans()[selectedHoyDate];
+  if(!plan){box.innerHTML="";return;}
+  const reg=plan.registered||{};
+  box.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:12px 14px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="_planBoxOpen=!_planBoxOpen;renderPlanBox()">
+      <div style="font-size:12px;font-weight:600;color:var(--text2)">🗓 Plan sugerido para este día</div>
+      <span style="color:var(--text3);font-size:12px">${_planBoxOpen?"▲":"▼"}</span>
+    </div>
+    ${_planBoxOpen?plan.comidas.map((c,i)=>`
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px">
+        <div style="min-width:0;flex:1">
+          <div style="font-size:12px;font-weight:600">${c.nombre} <span style="font-family:var(--mono);font-size:10px;color:var(--text3);font-weight:400">${c.cal} kcal</span></div>
+          <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.items.map(it=>it.alimento).join(", ")}</div>
+        </div>
+        ${reg[i]?`<span style="font-size:11px;color:var(--teal);flex-shrink:0">✓ registrado</span>`
+          :`<button class="btn" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="registerPlanMeal(${i})">Registrar</button>`}
+      </div>`).join(""):""}
+  </div>`;
+}
+
+function registerPlanMeal(mi){
+  const plans=getMealPlans();
+  const plan=plans[selectedHoyDate];
+  if(!plan)return;
+  const c=plan.comidas[mi];
+  if(!c||(plan.registered||{})[mi])return;
+  const td=getTodayData();
+  for(const it of c.items){
+    td.foods.push({
+      name:"🗓 "+it.alimento+(it.cantidad?" ("+it.cantidad+")":""),
+      cal:Math.round(+it.cal||0),
+      prot:+(+it.prot||0).toFixed(1),
+      carb:+(+it.carb||0).toFixed(1),
+      fat:+(+it.grasa||0).toFixed(1)
+    });
+  }
+  saveTodayData(td);
+  plan.registered=plan.registered||{};
+  plan.registered[mi]=true;
+  ss("mealPlans",plans);
+  _planBoxOpen=true;
+  renderHoy();
+  showToast(c.nombre+" registrado ✓","ok");
+}
+
 // ─── INSIGHTS SEMANALES (reglas locales, sin IA; IA opcional) ─────
 function prevWeekLabel(){
   const d=new Date(currentWeekLabel()+"T12:00:00");d.setDate(d.getDate()-7);
-  return d.toISOString().split("T")[0];
+  return todayKey(d);
 }
 function weekDatesFrom(monday){
-  return Array.from({length:7},(_,i)=>{const d=new Date(monday+"T12:00:00");d.setDate(d.getDate()+i);return d.toISOString().split("T")[0];});
+  return Array.from({length:7},(_,i)=>{const d=new Date(monday+"T12:00:00");d.setDate(d.getDate()+i);return todayKey(d);});
 }
 function aggregateWeekStats(monday){
   const allDays=getDays();
@@ -3035,7 +3243,7 @@ function aggregateWeekStats(monday){
 }
 function buildWeeklyInsight(monday){
   const s=aggregateWeekStats(monday);
-  const prevMon=(()=>{const d=new Date(monday+"T12:00:00");d.setDate(d.getDate()-7);return d.toISOString().split("T")[0];})();
+  const prevMon=(()=>{const d=new Date(monday+"T12:00:00");d.setDate(d.getDate()-7);return todayKey(d);})();
   const prev=aggregateWeekStats(prevMon);
   const lines=[];
   const hasAny=s.regDays>0||s.trained>0;
@@ -3128,7 +3336,7 @@ function renderSemana(){
   setChartTitles("semana");
   const dayNames=["D","L","M","M","J","V","S"],today=new Date(),sow=new Date(today);sow.setDate(today.getDate()-today.getDay());
   const allDays=getDays();const weekDates=[];
-  document.getElementById("wk-grid").innerHTML=Array.from({length:7},(_,i)=>{const d=new Date(sow);d.setDate(sow.getDate()+i);const ds=d.toISOString().split("T")[0];weekDates.push(ds);const hasData=allDays[ds]&&(allDays[ds].foods||[]).length>0;return`<div class="wday${hasData?" has-data":""}${ds===TODAY?" today":""}" onclick="showDayDetail('${ds}')"><div class="wday-n">${dayNames[i]}</div><div class="wday-d">${d.getDate()}</div><div class="wdot"></div></div>`;}).join("");
+  document.getElementById("wk-grid").innerHTML=Array.from({length:7},(_,i)=>{const d=new Date(sow);d.setDate(sow.getDate()+i);const ds=todayKey(d);weekDates.push(ds);const hasData=allDays[ds]&&(allDays[ds].foods||[]).length>0;return`<div class="wday${hasData?" has-data":""}${ds===TODAY?" today":""}" onclick="showDayDetail('${ds}')"><div class="wday-n">${dayNames[i]}</div><div class="wday-d">${d.getDate()}</div><div class="wdot"></div></div>`;}).join("");
   let wCal=0,wProt=0,wBurned=0,wDays=0,wSteps=0,wActive=0;
   weekDates.forEach(ds=>{const d=allDays[ds];if(!d)return;const t=getTotals(d.foods||[]);if(t.cal>0)wDays++;wCal+=t.cal;wProt+=t.prot;wSteps+=(d.steps||0);const tgt=getDayTargets(d);wBurned+=tgt.burned;if(d.gymOn||d.boxingOn||(d.extraActivities&&d.extraActivities.length))wActive++;});
   document.getElementById("wk-sum-cards").innerHTML=`<div class="card"><div class="card-label">Días registrados</div><div class="card-val">${wDays}/7</div></div><div class="card"><div class="card-label">Sesiones activas</div><div class="card-val">${wActive}</div><div class="card-sub">gym + boxeo</div></div><div class="card"><div class="card-label">Proteína prom.</div><div class="card-val">${wDays?Math.round(wProt/wDays):0}<span style="font-size:13px">g</span></div></div><div class="card"><div class="card-label">Pasos totales</div><div class="card-val" style="font-size:18px">${(wSteps/1000).toFixed(1)}<span style="font-size:13px">k</span></div></div>`;
@@ -3247,7 +3455,7 @@ async function sugerirRutinaIA(){
   const allDays=getDays();
   const routine=getUserRoutine();
   const customEx=ls("customExercises",{});
-  const offsetDate=(n)=>{const d=new Date(TODAY+"T12:00:00");d.setDate(d.getDate()-n);return d.toISOString().split("T")[0];};
+  const offsetDate=(n)=>{const d=new Date(TODAY+"T12:00:00");d.setDate(d.getDate()-n);return todayKey(d);};
 
   const gymSummary=[];
   for(let i=0;i<10;i++){
@@ -5084,7 +5292,7 @@ function restoreGymTimer(){
     // Sesión olvidada: guardar duración hasta la última actividad registrada
     const elapsed=Math.floor((lastAct-start)/1000);
     if(elapsed>60){
-      const date=new Date(start).toISOString().split("T")[0];
+      const date=todayKey(new Date(start));
       const allDays=getDays();
       if(allDays[date]){allDays[date].gymDuration=elapsed;saveDays(allDays,[date]);}
     }
@@ -5122,6 +5330,7 @@ function updateFloatingTimer(){
 // ─── RESYNC AL VOLVER A LA APP (visibilitychange) ─────────────────
 document.addEventListener("visibilitychange",()=>{
   if(document.hidden)return;
+  checkDayRollover(); // ¿cruzamos la medianoche mientras la app estaba suspendida?
   // Rest timer: recalcular contra el timestamp real
   const st=_rtState();
   if(st.active&&!st.paused){
@@ -5397,6 +5606,21 @@ if("serviceWorker" in navigator){
     <div id="nl-items-list" style="margin-bottom:12px;max-height:320px;overflow-y:auto"></div>
     <div id="nl-totals" style="display:flex;justify-content:space-between;font-size:13px;font-family:var(--mono);color:var(--text2);background:var(--surface2);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:14px"></div>
     <button class="btn primary wide" onclick="confirmNLItems()">Agregar todo al día</button>
+  </div>
+</div>
+
+<!-- MEAL PLAN MODAL -->
+<div class="modal-overlay" id="plan-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">🗓 Plan de mañana</div>
+      <button class="modal-close" onclick="closePlanModal()">×</button>
+    </div>
+    <div id="plan-modal-body" style="max-height:400px;overflow-y:auto;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn" id="plan-regen-btn" onclick="generateMealPlan(true)" style="flex-shrink:0">🔄 Otro</button>
+      <button class="btn primary wide" onclick="saveMealPlan()">Guardar plan</button>
+    </div>
   </div>
 </div>
 
