@@ -577,6 +577,36 @@ select option{background:#18181c}
   </div>
 
   <div class="prof-sec" style="margin-top:16px">
+    <div class="page-sub" style="margin-bottom:8px">Mi dieta — planificador con IA</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:10px;line-height:1.4">Configurá tu estructura una vez; la IA planifica respetándola. Todo es opcional — hay valores por defecto razonables.</div>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Comidas del día (2 a 6)</div>
+    <div id="diet-meals"></div>
+    <button class="btn" style="font-size:12px;padding:6px 12px;margin-bottom:12px" onclick="addDietMeal()">+ Agregar comida</button>
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Restricciones y preferencias</div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px 16px;margin-bottom:10px;font-size:13px">
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dc-veg" style="accent-color:var(--accent)">Vegetariano</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dc-vegano" style="accent-color:var(--accent)">Vegano</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dc-sintacc" style="accent-color:var(--accent)">Sin TACC</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dc-sinlactosa" style="accent-color:var(--accent)">Sin lactosa</label>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="dc-economico" style="accent-color:var(--accent)">Priorizar económicos</label>
+    </div>
+    <input type="text" class="form-input" id="dc-nomegusta" placeholder="No como... (ej: pescado, hígado)" style="margin-bottom:8px">
+    <input type="text" class="form-input" id="dc-favoritos" placeholder="Favoritos que quiero seguido (ej: milanesa, avena)" style="margin-bottom:12px">
+    <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Días de entrenamiento</div>
+    <div id="diet-traindays" style="display:flex;gap:6px;margin-bottom:8px"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="font-size:12px;color:var(--text2)">Hora aprox. de entreno:</span>
+      <input type="time" class="form-input" id="dc-trainhora" style="width:110px">
+    </div>
+    <button class="btn wide" onclick="saveDietConfig()">Guardar configuración de dieta</button>
+    <div style="display:flex;gap:8px;margin-top:10px">
+      <button class="btn primary wide" id="gen-weekplan-btn" onclick="generateWeeklyPlan()">📅 Generar plan semanal</button>
+      <button class="btn" style="flex-shrink:0" onclick="openWeekPlan()">Ver plan</button>
+    </div>
+    <div id="weekplan-status" style="display:none;font-size:12px;color:var(--text2);text-align:center;padding:10px 0"></div>
+  </div>
+
+  <div class="prof-sec" style="margin-top:16px">
     <div class="page-sub" style="margin-bottom:8px">Exportar datos</div>
     <div style="font-size:12px;color:var(--text3);margin-bottom:10px;line-height:1.4">Descargá todo tu historial de comidas y sesiones de gym en formato CSV, listo para abrir en Excel o Google Sheets.</div>
     <button class="btn wide" onclick="exportarCSV()">
@@ -997,7 +1027,7 @@ const firebaseConfig = {
   appId: "1:143264606965:web:7cf0032b6a521f8cd473bc"
 };
 // "days" ya no se sincroniza como campo único: vive en la subcolección months/{YYYY-MM}
-const SYNC_KEYS = ["profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines","rankingOptIn"];
+const SYNC_KEYS = ["profile","customFoods","customExercises","foodIdCounter","userRoutine","weightHistory","savedRoutines","rankingOptIn","dietConfig"];
 let fbAuth = null, fbDb = null, fbUser = null;
 const ADMIN_UID = "27kSUTAXhpg7NPO342S7XXPjwHn1"; // ← ver tu UID en Perfil después de loguearte
 let _sfCache = null, _sfCacheTime = 0;
@@ -3041,13 +3071,106 @@ let _mealPlanDraft=null,_planBoxOpen=false;
 function tomorrowKey(){const d=new Date();d.setDate(d.getDate()+1);return todayKey(d);}
 function getMealPlans(){return ls("mealPlans",{});}
 
-// Heurística: ¿mañana entrena? Mismo día de semana en las últimas 3 semanas
-function tomorrowIsTrainingDay(){
+// ─── CONFIGURACIÓN DE DIETA (dietConfig — sincronizada via SYNC_KEYS) ──
+function defaultTrainDays(){
+  // Default: días de semana con entrenamiento en las últimas 2 semanas
   const allDays=getDays();
-  const t=new Date();t.setDate(t.getDate()+1);
+  const set=new Set();
+  for(let i=1;i<=14;i++){
+    const d=new Date();d.setDate(d.getDate()-i);
+    const day=allDays[todayKey(d)];
+    if(day&&(day.gymOn||day.boxingOn))set.add(d.getDay());
+  }
+  return[...set].sort();
+}
+function getDietConfig(){
+  const d=ls("dietConfig",null);
+  if(d&&d.comidas&&d.comidas.length)return d;
+  return{
+    comidas:[{nombre:"Desayuno",hora:"08:00"},{nombre:"Almuerzo",hora:"13:00"},{nombre:"Merienda",hora:"17:00"},{nombre:"Cena",hora:"21:30"}],
+    veg:false,vegano:false,sinTacc:false,sinLactosa:false,economico:false,
+    noMeGusta:"",favoritos:"",
+    trainDays:defaultTrainDays(),trainHora:"18:00"
+  };
+}
+function dietRestrictionsText(cfg){
+  const r=[];
+  if(cfg.vegano)r.push("VEGANO — ningún producto de origen animal, SIN EXCEPCIÓN");
+  else if(cfg.veg)r.push("VEGETARIANO — nada de carne ni pescado, SIN EXCEPCIÓN");
+  if(cfg.sinTacc)r.push("SIN TACC/gluten (celíaco) — SIN EXCEPCIÓN");
+  if(cfg.sinLactosa)r.push("SIN LACTOSA — ni leche común, ni yogur, ni quesos frescos — SIN EXCEPCIÓN");
+  if(cfg.economico)r.push("priorizar alimentos ECONÓMICOS (huevo, pollo, arroz, legumbres, estacionales)");
+  if(cfg.noMeGusta)r.push("NO incluir bajo ningún concepto: "+cfg.noMeGusta);
+  if(cfg.favoritos)r.push("favoritos del usuario (que aparezcan seguido): "+cfg.favoritos);
+  return r.length?r.join(". "):"sin restricciones";
+}
+// UI de configuración de dieta (Perfil → Mi dieta)
+let _dcMeals=[],_dcTrainDays=[];
+function renderDietConfig(){
+  const cfg=getDietConfig();
+  _dcMeals=cfg.comidas.map(c=>({...c}));
+  renderDietMeals();
+  const set=(id,v)=>{const el=document.getElementById(id);if(el)el.checked=!!v;};
+  set("dc-veg",cfg.veg);set("dc-vegano",cfg.vegano);set("dc-sintacc",cfg.sinTacc);
+  set("dc-sinlactosa",cfg.sinLactosa);set("dc-economico",cfg.economico);
+  const nv=document.getElementById("dc-nomegusta");if(nv)nv.value=cfg.noMeGusta||"";
+  const fv=document.getElementById("dc-favoritos");if(fv)fv.value=cfg.favoritos||"";
+  const th=document.getElementById("dc-trainhora");if(th)th.value=cfg.trainHora||"18:00";
+  renderTrainDayChips(cfg.trainDays||[]);
+}
+function renderDietMeals(){
+  const el=document.getElementById("diet-meals");if(!el)return;
+  el.innerHTML=_dcMeals.map((c,i)=>`<div style="display:flex;gap:6px;margin-bottom:6px;align-items:center">
+    <input type="text" class="form-input" value="${(c.nombre||"").replace(/"/g,"&quot;")}" oninput="_dcMeals[${i}].nombre=this.value" style="flex:1;min-width:0">
+    <input type="time" class="form-input" value="${c.hora||""}" oninput="_dcMeals[${i}].hora=this.value" style="width:100px;flex-shrink:0">
+    ${_dcMeals.length>2?`<button onclick="removeDietMeal(${i})" style="background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:0 4px;flex-shrink:0">×</button>`:`<span style="width:22px;flex-shrink:0"></span>`}
+  </div>`).join("");
+}
+function addDietMeal(){
+  if(_dcMeals.length>=6){showToast("Máximo 6 comidas","err");return;}
+  _dcMeals.push({nombre:"Comida "+(_dcMeals.length+1),hora:""});
+  renderDietMeals();
+}
+function removeDietMeal(i){
+  if(_dcMeals.length<=2){showToast("Mínimo 2 comidas","err");return;}
+  _dcMeals.splice(i,1);
+  renderDietMeals();
+}
+function renderTrainDayChips(days){
+  _dcTrainDays=[...days];
+  const el=document.getElementById("diet-traindays");if(!el)return;
+  const names=["D","L","M","M","J","V","S"];
+  el.innerHTML=names.map((n,i)=>`<button class="rest-preset${_dcTrainDays.includes(i)?" active":""}" onclick="toggleTrainDay(${i})" style="flex:1">${n}</button>`).join("");
+}
+function toggleTrainDay(i){
+  const ix=_dcTrainDays.indexOf(i);
+  if(ix>=0)_dcTrainDays.splice(ix,1);else _dcTrainDays.push(i);
+  renderTrainDayChips(_dcTrainDays);
+}
+function saveDietConfig(){
+  const chk=id=>!!document.getElementById(id)?.checked;
+  const val=id=>(document.getElementById(id)?.value||"").trim();
+  const comidas=_dcMeals.filter(c=>(c.nombre||"").trim()).map(c=>({nombre:c.nombre.trim(),hora:c.hora||""}));
+  if(comidas.length<2){showToast("Definí al menos 2 comidas","err");return;}
+  const cfg={comidas,
+    veg:chk("dc-veg"),vegano:chk("dc-vegano"),sinTacc:chk("dc-sintacc"),
+    sinLactosa:chk("dc-sinlactosa"),economico:chk("dc-economico"),
+    noMeGusta:val("dc-nomegusta"),favoritos:val("dc-favoritos"),
+    trainDays:[..._dcTrainDays].sort(),trainHora:val("dc-trainhora")};
+  ss("dietConfig",cfg);
+  syncToCloud("dietConfig",cfg);
+  showToast("Configuración de dieta guardada ✓","ok");
+}
+
+// ¿Ese día entrena? dietConfig primero; si no está configurado, heurística histórica
+function isTrainingDayFor(dateStr){
+  const cfg=getDietConfig();
+  const dow=new Date(dateStr+"T12:00:00").getDay();
+  if(cfg.trainDays&&cfg.trainDays.length)return cfg.trainDays.includes(dow);
+  const allDays=getDays();
   let hits=0;
   for(let w=1;w<=3;w++){
-    const d=new Date(t);d.setDate(t.getDate()-7*w);
+    const d=new Date(dateStr+"T12:00:00");d.setDate(d.getDate()-7*w);
     const day=allDays[todayKey(d)];
     if(day&&(day.gymOn||day.boxingOn))hits++;
   }
@@ -3094,45 +3217,145 @@ function openPlanTomorrow(){
   generateMealPlan(false);
 }
 
-async function generateMealPlan(force){
+// Contexto común de todos los prompts de planificación
+function _planPromptContext(cfg,freq){
+  const comidasTxt=cfg.comidas.map(c=>c.nombre+(c.hora?" ("+c.hora+")":"")).join(", ");
+  return`Estructura de comidas configurada por el usuario (respetala exactamente, con esos nombres y en ese orden): ${comidasTxt}.
+Restricciones y preferencias (OBLIGATORIAS, sin excepción): ${dietRestrictionsText(cfg)}.
+${cfg.trainHora?"Los días de entrenamiento entrena aprox. a las "+cfg.trainHora+" — concentrá carbohidratos y proteína en las comidas cercanas a ese horario.":""}
+Alimentos que ya come habitualmente — usá MAYORMENTE estos, nada de recetas exóticas:
+${freq.length?freq.join(", "):"sin historial — comidas argentinas simples y comunes"}
+Contexto argentino: mate o café con leche en desayuno/merienda, comidas caseras típicas.
+Formato de cada ítem: {"alimento":"...","cantidad":"ej: 2 huevos / 150g","gramos":N,"cal":N,"prot":N,"carb":N,"grasa":N}. "gramos" = peso total del ítem; los macros corresponden a SUS gramos totales (NO por 100g). Todos números.`;
+}
+function _normalizePlanDay(dateStr,comidas){
+  const clean=(comidas||[]).filter(c=>c.nombre&&Array.isArray(c.items)&&c.items.length);
+  if(!clean.length)return null;
+  for(const c of clean){
+    c.cal=Math.round(c.items.reduce((a,i)=>a+(+i.cal||0),0));
+    c.prot=Math.round(c.items.reduce((a,i)=>a+(+i.prot||0),0));
+    c.carb=Math.round(c.items.reduce((a,i)=>a+(+i.carb||0),0));
+    c.fat=Math.round(c.items.reduce((a,i)=>a+(+i.grasa||0),0));
+  }
+  const train=isTrainingDayFor(dateStr);
+  return{date:dateStr,train,tgt:planTargets(train),comidas:clean,generatedAt:new Date().toISOString(),registered:{},skipped:{}};
+}
+
+// Genera UN día (motor compartido: atajo "mañana" y regeneración por día)
+async function generateDayPlan(dateStr){
   const key=getGeminiKey();
-  if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return null;}
+  const cfg=getDietConfig();
+  const train=isTrainingDayFor(dateStr);
+  const tgt=planTargets(train);
+  const prompt=`Sos un nutricionista argentino. Armá el plan de comidas del ${dateStr} para esta persona.
+Objetivo del día: ${tgt.eat} kcal, ${tgt.prot}g proteína, ${tgt.carb}g carbohidratos, ${tgt.fat}g grasas (tolerancia ±5%).
+${train?"Ese día ENTRENA.":"Ese día DESCANSA: carbohidratos moderados, proteína alta."}
+${_planPromptContext(cfg,frequentFoods())}
+Respondé SOLO este JSON: {"comidas":[{"nombre":"...","items":[...]}]}`;
+  try{
+    const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json",maxOutputTokens:4096}});
+    if(!res||!res.ok){showToast(geminiErrorMsg(res),"err");return null;}
+    const data=await res.json();
+    const raw=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!raw){showToast("Gemini no respondió","err");return null;}
+    const plan=_normalizePlanDay(dateStr,JSON.parse(raw).comidas);
+    if(!plan){showToast("Plan inválido — probá de nuevo","err");return null;}
+    return plan;
+  }catch(e){showToast("Error al interpretar el plan","err");console.error(e);return null;}
+}
+
+// Atajo "Planificar mañana": mismo dietConfig, mismo motor
+async function generateMealPlan(force){
   const btn=document.getElementById("plan-regen-btn");
   if(btn){btn.disabled=true;btn.textContent="...";}
   if(!force)showToast("Armando el plan de mañana...","ok");
-  const train=tomorrowIsTrainingDay();
-  const tgt=planTargets(train);
-  const freq=frequentFoods();
-  const prompt=`Sos un nutricionista argentino. Armá el plan de comidas de MAÑANA para esta persona.
-Objetivo del día: ${tgt.eat} kcal, ${tgt.prot}g proteína, ${tgt.carb}g carbohidratos, ${tgt.fat}g grasas.
-${train?"Mañana ENTRENA: priorizá carbohidratos y proteína alrededor del entrenamiento.":"Mañana es día de DESCANSO: carbohidratos moderados, proteína alta."}
-Alimentos que esta persona ya come habitualmente — armá el plan MAYORMENTE con estos, nada de recetas exóticas:
-${freq.length?freq.join(", "):"sin historial — usá comidas argentinas simples y comunes"}
-Contexto argentino: mate o café con leche en desayuno/merienda, comidas caseras típicas.
-Respondé SOLO este JSON:
-{"comidas":[{"nombre":"Desayuno","items":[{"alimento":"...","cantidad":"ej: 2 huevos / 150g","gramos":N,"cal":N,"prot":N,"carb":N,"grasa":N}]}]}
-Reglas: exactamente 4 comidas (Desayuno, Almuerzo, Merienda, Cena). "gramos" = peso total del ítem. Los macros de cada ítem corresponden a SUS gramos totales (NO por 100g). La suma del día debe quedar dentro de ±5% del objetivo. Todos números, sin texto extra.`;
+  const plan=await generateDayPlan(tomorrowKey());
+  if(btn){btn.disabled=false;btn.textContent="🔄 Otro";}
+  if(!plan)return;
+  _mealPlanDraft=plan;
+  renderPlanModal();
+  document.getElementById("plan-modal").classList.add("show");
+}
+
+// ─── PLAN SEMANAL (una sola llamada grande — cuida la cuota) ──────
+function _planGenCount(){return +(localStorage.getItem("planGens_"+TODAY)||0);}
+function _bumpPlanGen(){localStorage.setItem("planGens_"+TODAY,_planGenCount()+1);}
+
+function _weekDatesFromTomorrow(){
+  return Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()+1+i);return todayKey(d);});
+}
+
+async function generateWeeklyPlan(){
+  const key=getGeminiKey();
+  if(!key){showToast("Primero guardá tu API Key de Gemini en Perfil","err");return;}
+  if(_planGenCount()>=3){showToast("Límite de 3 planes semanales por día — probá mañana","err");return;}
+  const status=document.getElementById("weekplan-status");
+  const btn=document.getElementById("gen-weekplan-btn");
+  if(btn)btn.disabled=true;
+  if(status){status.style.display="block";status.textContent="🤖 Generando plan semanal... puede tardar 20-30 segundos";}
   try{
-    const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json"}});
-    if(!res||!res.ok){showToast(geminiErrorMsg(res),"err");return;}
-    const data=await res.json();
-    const raw=data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if(!raw){showToast("Gemini no respondió","err");return;}
-    const parsed=JSON.parse(raw);
-    const comidas=(parsed.comidas||[]).filter(c=>c.nombre&&Array.isArray(c.items)&&c.items.length);
-    if(!comidas.length){showToast("Plan inválido — probá de nuevo","err");return;}
-    // Totales por comida recalculados en el cliente (no confiar en sumas del modelo)
-    for(const c of comidas){
-      c.cal=Math.round(c.items.reduce((a,i)=>a+(+i.cal||0),0));
-      c.prot=Math.round(c.items.reduce((a,i)=>a+(+i.prot||0),0));
-      c.carb=Math.round(c.items.reduce((a,i)=>a+(+i.carb||0),0));
-      c.fat=Math.round(c.items.reduce((a,i)=>a+(+i.grasa||0),0));
+    const dates=_weekDatesFromTomorrow();
+    let dias=await _fetchPlanDays(key,dates);
+    // JSON truncado / días faltantes → reintentar UNA vez solo con los que faltan
+    const missing=dates.filter(d=>!dias[d]);
+    if(missing.length&&missing.length<7){
+      if(status)status.textContent="🤖 Completando "+missing.length+" día(s) faltante(s)...";
+      const extra=await _fetchPlanDays(key,missing);
+      Object.assign(dias,extra);
     }
-    _mealPlanDraft={date:tomorrowKey(),train,tgt,comidas,generatedAt:new Date().toISOString(),registered:{}};
-    renderPlanModal();
-    document.getElementById("plan-modal").classList.add("show");
-  }catch(e){showToast("Error al interpretar el plan","err");console.error(e);}
-  finally{if(btn){btn.disabled=false;btn.textContent="🔄 Otro";}}
+    const got=dates.filter(d=>dias[d]);
+    if(!got.length){showToast("No se pudo generar el plan — probá de nuevo","err");return;}
+    const plans=getMealPlans();
+    for(const d of got)plans[d]=dias[d];
+    const cutoff=todayKey(new Date(Date.now()-7*864e5));
+    for(const k of Object.keys(plans))if(k<cutoff)delete plans[k];
+    ss("mealPlans",plans);
+    _bumpPlanGen();
+    showToast(got.length===7?"Plan semanal listo ✓":"Plan generado ("+got.length+" de 7 días) ✓","ok");
+    renderWeekPlan();
+    document.getElementById("week-plan-modal").classList.add("show");
+  }finally{
+    if(btn)btn.disabled=false;
+    if(status)status.style.display="none";
+  }
+}
+
+// Pide un conjunto de días en UNA llamada; devuelve {fecha: planObj}
+async function _fetchPlanDays(key,dates){
+  const cfg=getDietConfig();
+  const dayNames=["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+  const diasTxt=dates.map(ds=>{
+    const train=isTrainingDayFor(ds);
+    const tgt=planTargets(train);
+    return`- ${ds} (${dayNames[new Date(ds+"T12:00:00").getDay()]}): ${train?"ENTRENA":"descansa"} → objetivo ${tgt.eat} kcal, ${tgt.prot}g prot, ${tgt.carb}g carb, ${tgt.fat}g grasas`;
+  }).join("\n");
+  const prompt=`Sos un nutricionista argentino. Armá el plan de comidas de estos ${dates.length} días:
+${diasTxt}
+${_planPromptContext(cfg,frequentFoods())}
+IMPORTANTE: variá los platos entre días — no repitas el mismo almuerzo o cena dos días seguidos. Cumplí el objetivo de CADA día con tolerancia ±5%.
+Respondé SOLO este JSON: {"dias":[{"fecha":"YYYY-MM-DD","comidas":[{"nombre":"...","items":[...]}]}]}`;
+  const out={};
+  try{
+    const res=await geminiPost(key,{contents:[{parts:[{text:prompt}]}],generationConfig:{responseMimeType:"application/json",maxOutputTokens:16384}});
+    if(!res||!res.ok){showToast(geminiErrorMsg(res),"err");return out;}
+    const data=await res.json();
+    let raw=data?.candidates?.[0]?.content?.parts?.[0]?.text||"";
+    let parsed;
+    try{parsed=JSON.parse(raw);}
+    catch(e){
+      // JSON truncado: rescatar los días completos que sí llegaron
+      const iLast=raw.lastIndexOf("},{\"fecha\"");
+      if(iLast>0){try{parsed=JSON.parse(raw.slice(0,iLast)+"}]}");}catch(e2){return out;}}
+      else return out;
+    }
+    for(const dia of(parsed.dias||[])){
+      if(!dia.fecha||!dates.includes(dia.fecha))continue;
+      const plan=_normalizePlanDay(dia.fecha,dia.comidas);
+      if(plan)out[dia.fecha]=plan;
+    }
+  }catch(e){console.error("fetchPlanDays:",e);}
+  return out;
 }
 
 function renderPlanModal(){
@@ -3167,16 +3390,44 @@ function saveMealPlan(){
 }
 function closePlanModal(){document.getElementById("plan-modal").classList.remove("show");}
 
-// Sugerencia visible al abrir el día planificado (referencia, nunca obligación)
+// Sugerencia visible al abrir el día planificado (guía, nunca obligación)
 function renderPlanBox(){
   const box=document.getElementById("plan-box");
   if(!box)return;
   const plan=getMealPlans()[selectedHoyDate];
   if(!plan){box.innerHTML="";return;}
-  const reg=plan.registered||{};
-  box.innerHTML=`<div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:12px 14px;margin-bottom:12px">
+  const reg=plan.registered||{},skip=plan.skipped||{};
+  const cfg=getDietConfig();
+  // Próxima comida pendiente: por horario si es HOY, sino la primera sin resolver
+  const pend=plan.comidas.map((c,i)=>({c,i})).filter(x=>!reg[x.i]&&!skip[x.i]);
+  let next=null;
+  if(pend.length){
+    if(selectedHoyDate===TODAY){
+      const now=new Date(),nowHM=String(now.getHours()).padStart(2,"0")+":"+String(now.getMinutes()).padStart(2,"0");
+      // La primera pendiente cuyo horario configurado aún no pasó hace más de 90 min
+      next=pend.find(x=>{
+        const hora=cfg.comidas[x.i]?.hora;
+        if(!hora)return true;
+        const late=new Date(now);const[h,m]=hora.split(":");late.setHours(+h,+m+90,0,0);
+        return late>=now||nowHM<hora;
+      })||pend[pend.length-1];
+    }else next=pend[0];
+  }
+  const nextHtml=next?`<div style="background:linear-gradient(135deg,rgba(200,245,100,0.07),transparent);border:1px solid rgba(200,245,100,0.25);border-radius:var(--r);padding:12px 14px;margin-bottom:8px">
+    <div style="font-size:12px;font-weight:600;margin-bottom:4px">🍽 ${next.c.nombre} planificado${cfg.comidas[next.i]?.hora?` (${cfg.comidas[next.i].hora})`:""}</div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:8px">${next.c.items.map(it=>it.alimento).join(", ")} — <b style="font-family:var(--mono)">${next.c.cal} kcal</b></div>
+    <div style="display:flex;gap:8px">
+      <button class="btn primary" style="font-size:12px;padding:6px 12px" onclick="registerPlanMeal(${next.i})">Registrar tal cual</button>
+      <button class="btn" style="font-size:12px;padding:6px 12px" onclick="skipPlanMeal(${next.i})">Registré otra cosa</button>
+    </div>
+  </div>`:"";
+  // Comparación neutral al cierre del día (sin juicio)
+  const consumed=getTotals((getDays()[selectedHoyDate]||{}).foods||[]).cal;
+  const planTotal=plan.comidas.reduce((a,c)=>a+c.cal,0);
+  const compareHtml=(!pend.length&&consumed>0)?`<div style="font-size:11px;color:var(--text3);margin-top:8px">Hoy: ${Math.round(consumed)} kcal · plan: ${planTotal} kcal</div>`:"";
+  box.innerHTML=nextHtml+`<div style="background:var(--surface);border:1px solid var(--border2);border-radius:var(--r);padding:12px 14px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="_planBoxOpen=!_planBoxOpen;renderPlanBox()">
-      <div style="font-size:12px;font-weight:600;color:var(--text2)">🗓 Plan sugerido para este día</div>
+      <div style="font-size:12px;font-weight:600;color:var(--text2)">🗓 Plan del día completo</div>
       <span style="color:var(--text3);font-size:12px">${_planBoxOpen?"▲":"▼"}</span>
     </div>
     ${_planBoxOpen?plan.comidas.map((c,i)=>`
@@ -3186,9 +3437,21 @@ function renderPlanBox(){
           <div style="font-size:11px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.items.map(it=>it.alimento).join(", ")}</div>
         </div>
         ${reg[i]?`<span style="font-size:11px;color:var(--teal);flex-shrink:0">✓ registrado</span>`
+          :skip[i]?`<span style="font-size:11px;color:var(--text3);flex-shrink:0">— otra cosa</span>`
           :`<button class="btn" style="font-size:11px;padding:5px 10px;flex-shrink:0" onclick="registerPlanMeal(${i})">Registrar</button>`}
-      </div>`).join(""):""}
+      </div>`).join("")+compareHtml:""}
   </div>`;
+}
+
+// "Registré otra cosa": colapsa la sugerencia sin culpa y pasa a la siguiente
+function skipPlanMeal(mi){
+  const plans=getMealPlans();
+  const plan=plans[selectedHoyDate];
+  if(!plan)return;
+  plan.skipped=plan.skipped||{};
+  plan.skipped[mi]=true;
+  ss("mealPlans",plans);
+  renderPlanBox();
 }
 
 function registerPlanMeal(mi){
@@ -3215,6 +3478,75 @@ function registerPlanMeal(mi){
   renderHoy();
   showToast(c.nombre+" registrado ✓","ok");
 }
+
+// ─── VISTA DEL PLAN SEMANAL ───────────────────────────────────────
+let _weekPlanOpenDay=null;
+function renderWeekPlan(){
+  const el=document.getElementById("week-plan-body");
+  if(!el)return;
+  const plans=getMealPlans();
+  const dates=Object.keys(plans).filter(d=>d>=TODAY).sort().slice(0,8);
+  if(!dates.length){el.innerHTML=`<div style="font-size:13px;color:var(--text3);text-align:center;padding:20px 0">Sin plan generado. Tocá "Generar plan semanal".</div>`;return;}
+  const dayNames=["Dom","Lun","Mar","Mié","Jue","Vie","Sáb"];
+  el.innerHTML=dates.map(ds=>{
+    const p=plans[ds];
+    const tot=p.comidas.reduce((a,c)=>a+c.cal,0);
+    const open=_weekPlanOpenDay===ds;
+    const dn=dayNames[new Date(ds+"T12:00:00").getDay()];
+    return`<div style="background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r-sm);margin-bottom:8px;overflow:hidden">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;cursor:pointer" onclick="_weekPlanOpenDay=_weekPlanOpenDay==='${ds}'?null:'${ds}';renderWeekPlan()">
+        <div style="font-size:13px;font-weight:600">${dn} ${ds.slice(8)}/${ds.slice(5,7)} ${p.train?"🏋️":""}</div>
+        <div style="font-size:11px;font-family:var(--mono);color:var(--text3)"><span style="color:var(--accent)">${tot}</span>/${p.tgt.eat} kcal ${open?"▲":"▼"}</div>
+      </div>
+      ${open?`<div style="padding:0 12px 10px">
+        ${p.comidas.map((c,mi)=>`<div style="margin-bottom:8px">
+          <div style="font-size:12px;font-weight:600">${c.nombre} <span style="font-family:var(--mono);font-size:10px;color:var(--text3);font-weight:400">${c.cal} kcal · P${c.prot} C${c.carb} G${c.fat}</span></div>
+          ${c.items.map((it,ii)=>`<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--text2);line-height:1.8">
+            <span>• ${it.alimento} — ${it.cantidad||Math.round(+it.gramos||0)+"g"}</span>
+            <button onclick="removePlanItem('${ds}',${mi},${ii})" title="Quitar del plan" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:12px;padding:0 4px">×</button>
+          </div>`).join("")}
+        </div>`).join("")}
+        <button class="btn" style="font-size:11px;padding:5px 10px" id="regen-day-${ds}" onclick="regenPlanDay('${ds}')">🔄 Regenerar este día</button>
+      </div>`:""}
+    </div>`;
+  }).join("");
+}
+
+// Edición manual: quitar un alimento del plan (persistido, totales recalculados)
+function removePlanItem(ds,mi,ii){
+  const plans=getMealPlans();
+  const p=plans[ds];
+  if(!p?.comidas?.[mi]?.items?.[ii])return;
+  p.comidas[mi].items.splice(ii,1);
+  if(!p.comidas[mi].items.length)p.comidas.splice(mi,1);
+  else{
+    const c=p.comidas[mi];
+    c.cal=Math.round(c.items.reduce((a,i)=>a+(+i.cal||0),0));
+    c.prot=Math.round(c.items.reduce((a,i)=>a+(+i.prot||0),0));
+    c.carb=Math.round(c.items.reduce((a,i)=>a+(+i.carb||0),0));
+    c.fat=Math.round(c.items.reduce((a,i)=>a+(+i.grasa||0),0));
+  }
+  ss("mealPlans",plans);
+  renderWeekPlan();
+  if(ds===selectedHoyDate)renderPlanBox();
+}
+
+// Regenerar SOLO un día (no cuenta contra el límite de planes completos)
+async function regenPlanDay(ds){
+  const btn=document.getElementById("regen-day-"+ds);
+  if(btn){btn.disabled=true;btn.textContent="Generando...";}
+  const plan=await generateDayPlan(ds);
+  if(btn){btn.disabled=false;btn.textContent="🔄 Regenerar este día";}
+  if(!plan)return;
+  const plans=getMealPlans();
+  plans[ds]=plan;
+  ss("mealPlans",plans);
+  renderWeekPlan();
+  if(ds===selectedHoyDate)renderPlanBox();
+  showToast("Día regenerado ✓","ok");
+}
+function closeWeekPlanModal(){document.getElementById("week-plan-modal").classList.remove("show");}
+function openWeekPlan(){renderWeekPlan();document.getElementById("week-plan-modal").classList.add("show");}
 
 // ─── INSIGHTS SEMANALES (reglas locales, sin IA; IA opcional) ─────
 function prevWeekLabel(){
@@ -3428,7 +3760,7 @@ function renderAnio(){
 function showDayDetail(date){const allDays=getDays(),d=allDays[date]||{foods:[],steps:0,gym:{}},t=getTotals(d.foods||[]),tgt=getDayTargets(d);document.getElementById("day-det-box").innerHTML=`<div class="day-det"><div class="day-det-hdr"><span style="font-size:13px;font-weight:500;font-family:var(--mono)">${date}</span><button style="background:none;border:none;color:var(--text3);font-size:20px;cursor:pointer" onclick="document.getElementById('day-det-box').innerHTML=''">×</button></div><div class="brow"><span class="bkey">Consumido</span><span class="bval">${Math.round(t.cal)} kcal</span></div><div class="brow"><span class="bkey">Gasto total</span><span class="bval">${tgt.burned} kcal</span></div><div class="brow"><span class="bkey">Proteínas</span><span class="bval">${Math.round(t.prot)}g</span></div><div class="brow"><span class="bkey">Gym 🏋️</span><span class="bval">${d.gymOn?"Sí (+"+tgt.gc+" kcal)":"No"}</span></div><div class="brow"><span class="bkey">Boxeo 🥊</span><span class="bval">${d.boxingOn?"Sí "+( d.boxingDuration||90)+"min (+"+tgt.bc+" kcal)":"No"}</span></div></div>`;}
 
 // ─── PERFIL ───────────────────────────────────────────────────────
-function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();const k=document.getElementById("p-gemini-key");if(k)k.value=getGeminiKey();const rc=document.getElementById("ranking-optin-chk");if(rc)rc.checked=rankingOptIn();renderWeightChart();}
+function renderPerfil(){const p=getProfile();document.getElementById("p-peso").value=p.peso;document.getElementById("p-altura").value=p.altura;document.getElementById("p-edad").value=p.edad;document.getElementById("p-sexo").value=p.sexo;document.getElementById("p-act").value=p.act;document.getElementById("p-obj").value=p.obj;showMacrosResult();const k=document.getElementById("p-gemini-key");if(k)k.value=getGeminiKey();const rc=document.getElementById("ranking-optin-chk");if(rc)rc.checked=rankingOptIn();renderDietConfig();renderWeightChart();}
 
 function renderWeightChart(){
   const wh = ls("weightHistory",[]);
@@ -5606,6 +5938,17 @@ if("serviceWorker" in navigator){
     <div id="nl-items-list" style="margin-bottom:12px;max-height:320px;overflow-y:auto"></div>
     <div id="nl-totals" style="display:flex;justify-content:space-between;font-size:13px;font-family:var(--mono);color:var(--text2);background:var(--surface2);border-radius:var(--r-sm);padding:10px 14px;margin-bottom:14px"></div>
     <button class="btn primary wide" onclick="confirmNLItems()">Agregar todo al día</button>
+  </div>
+</div>
+
+<!-- WEEK PLAN MODAL -->
+<div class="modal-overlay" id="week-plan-modal">
+  <div class="modal">
+    <div class="modal-hdr">
+      <div class="modal-title">📅 Plan semanal</div>
+      <button class="modal-close" onclick="closeWeekPlanModal()">×</button>
+    </div>
+    <div id="week-plan-body" style="max-height:440px;overflow-y:auto"></div>
   </div>
 </div>
 
